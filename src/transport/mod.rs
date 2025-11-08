@@ -1,7 +1,7 @@
-//! Dynamic transport layer for abstracting over different transport implementations.
+//! Transport layer for abstracting over different transport implementations.
 //!
-//! This module provides the `Transport` struct which dynamically selects between
-//! TCP and TLS transports based on configuration.
+//! This module provides the [`Transport`] struct which selects between TCP and
+//! TLS transports based on configuration.
 //!
 //! # Design Decision: Dynamic Dispatch
 //!
