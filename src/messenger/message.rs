@@ -52,7 +52,9 @@ impl_downcast!(Message);
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use rustcomm::impl_message;
+///
 /// #[derive(Debug)]
 /// struct ChatMessage { text: String }
 /// impl_message!(ChatMessage);

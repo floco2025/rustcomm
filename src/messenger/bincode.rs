@@ -19,7 +19,7 @@ use crate::Message;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
 /// use rustcomm::{MessageRegistry, register_bincode_message, impl_message};
 /// use bincode::{Encode, Decode};
 ///
