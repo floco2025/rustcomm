@@ -49,7 +49,8 @@ macro_rules! register_bincode_message {
 /// Serializes a [`Message`] into a byte vector using bincode.
 ///
 /// Helper function for serializing messages with bincode. Used with
-/// [`MessageRegistry`] via the [`register_bincode_message!`] macro.
+/// [`MessageRegistry`](super::MessageRegistry) via the
+/// [`register_bincode_message!`] macro.
 pub fn serialize_message<T>(msg: &dyn Message, buf: &mut Vec<u8>)
 where
     T: Message + bincode::Encode + 'static,
@@ -66,7 +67,8 @@ where
 /// Deserializes a message from bytes and returns it as a boxed [`Message`].
 ///
 /// Helper function for deserializing bincode-encoded messages. Used with
-/// [`MessageRegistry`] via the [`register_bincode_message!`] macro.
+/// [`MessageRegistry`](super::MessageRegistry) via the
+/// [`register_bincode_message!`] macro.
 pub fn deserialize_message<T>(data: &[u8]) -> Result<Box<dyn Message>, Error>
 where
     T: bincode::Decode<()> + Message + 'static,
