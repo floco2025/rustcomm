@@ -18,7 +18,7 @@ pub type MessageSerializer = fn(&dyn Message, &mut Vec<u8>);
 /// Type alias for message deserialization functions.
 ///
 /// A `MessageDeserializer` is a function that takes raw bytes and attempts
-/// to deserialize a message of a specific type, returning it as a boxed trait object.
+/// to deserialize a message of a specific type, returning it as a boxed [`Message`].
 ///
 /// # Function Signature
 ///
