@@ -1,0 +1,56 @@
+[package]
+name = "rustcomm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A lightweight, high-performance communication library"
+repository = "https://github.com/floco2025/rustcomm"
+readme = "README.md"
+keywords = ["messaging", "networking", "mio"]
+categories = ["network-programming"]
+
+[dependencies]
+mio = { version = "1", features = ["os-poll", "net"] }
+bincode = { version = "2.0", features = ["derive"], optional = true }
+downcast-rs = "1.2"
+config = "0.14"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "1.0"
+rustls = { version = "0.23", optional = true }
+rustls-pemfile = { version = "2.0", optional = true }
+webpki-roots = { version = "0.26", optional = true }
+
+[features]
+default = ["bincode", "tls"]
+tls = ["rustls", "rustls-pemfile", "webpki-roots"]
+
+[dev-dependencies]
+rand = "0.9.2"
+paste = "1.0"
+rcgen = "0.13"
+clap = { version = "4", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tempfile = "3"
+bincode = { version = "2.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.1"
+
+[[example]]
+name = "chat_client"
+path = "examples/chat/client.rs"
+
+[[example]]
+name = "chat_server_single"
+path = "examples/chat/server_single.rs"
+
+[[example]]
+name = "chat_server_multi"
+path = "examples/chat/server_multi.rs"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

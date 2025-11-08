@@ -1,0 +1,20 @@
+# Chat Example TLS Configuration
+# Use this config to enable TLS for the chat server and client
+#
+# Usage (from workspace root):
+#   cd examples/chat
+#   cargo run --example chat_server_single -- --config chat-tls.toml
+#   (or use chat_server_multi for the multi-threaded server)
+#   cargo run --example chat_client -- --config chat-tls.toml
+
+# Transport type: "tcp" or "tls"
+transport_type = "tls"
+
+# TLS Server Configuration (used by server)
+tls_server_cert = "cert.pem"
+tls_server_key = "key.pem"
+
+# TLS Client Configuration (used by client)
+# The CA certificate to verify the server's certificate
+# For self-signed certs in development, this is the same as the server cert
+tls_ca_cert = "cert.pem"

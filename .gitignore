@@ -1,0 +1,13 @@
+/target
+.vscode
+bacon.toml
+.DS_Store
+
+# TLS certificates and private keys (never commit these!)
+*.pem
+*.key
+*.crt
+*.csr
+
+# Exception: Sample certificates for chat example (development/testing only)
+!examples/chat/*.pem
