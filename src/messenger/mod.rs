@@ -35,21 +35,22 @@ pub struct Messenger {
     recv_buffers: HashMap<usize, Vec<u8>>,
 }
 
-/// Events produced by [`Messenger::fetch_events()`]
+/// Events produced by [`Messenger::fetch_events()`].
 ///
-/// # Variants
-///
-/// - `Inactive` - The messenger has no listeners or connections.
-/// - `Connected { id }` - Connection established.
-/// - `ConnectionFailed { id }` - Connection establishement failed.
-/// - `Disconnected { id }` - Connection closed. Clean up state associated with this `id`.
-/// - `Message { id, msg }` - Received and deserialized message. Use `downcast_ref::<T>()` to access.
+/// These events represent the lifecycle of connections and messages in the
+/// messenger. Handle each event to manage connection state and process incoming
+/// messages.
 #[derive(Debug)]
 pub enum MessengerEvent {
+    /// The messenger has no listeners or connections.
     Inactive,
+    /// Connection established.
     Connected { id: usize },
+    /// Connection establishment failed.
     ConnectionFailed { id: usize },
+    /// Connection closed. Clean up state associated with this `id`.
     Disconnected { id: usize },
+    /// Received and deserialized message. Use `downcast_ref::<T>()` to access.
     Message { id: usize, msg: Box<dyn Message> },
 }
 

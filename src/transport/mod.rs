@@ -109,21 +109,22 @@ pub struct Transport {
     inner: Box<dyn TransportImpl>,
 }
 
-/// Events produced by [`Transport::fetch_events()`]
+/// Events produced by [`Transport::fetch_events()`].
 ///
-/// # Variants
-///
-/// - `Inactive` - The transport has no listeners or connections.
-/// - `Connected { id }` - Connection established.
-/// - `ConnectionFailed { id }` - Connection establishment failed.
-/// - `Disconnected { id }` - Connection closed. Clean up state associated with this `id`.
-/// - `Data { id, data }` - Received raw bytes from connection.
+/// These events represent the lifecycle of connections and data transfer at the
+/// transport layer. Handle each event to manage connection state and process
+/// incoming raw data.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransportEvent {
+    /// The transport has no listeners or connections.
     Inactive,
+    /// Connection established.
     Connected { id: usize },
+    /// Connection establishment failed.
     ConnectionFailed { id: usize },
+    /// Connection closed. Clean up state associated with this `id`.
     Disconnected { id: usize },
+    /// Received raw bytes from connection.
     Data { id: usize, data: Vec<u8> },
 }
 
@@ -233,8 +234,8 @@ impl Transport {
     /// Initiates a connection to the specified address.
     ///
     /// The connection is established asynchronously. You will receive a
-    /// `TransportEvent::Connected` event when the connection is fully
-    /// established, or `TransportEvent::ConnectionFailed` if it fails.
+    /// [`TransportEvent::Connected`] event when the connection is fully
+    /// established, or [`TransportEvent::ConnectionFailed`] if it fails.
     ///
     /// Returns a tuple of (connection_id, socket_addr) where:
     /// - `connection_id`: Use this ID to send data to this connection.
@@ -259,7 +260,8 @@ impl Transport {
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally.
     ///
-    /// **Note:** This does not trigger a `TransportEvent::Disconnected` event.
+    /// **Note:** This does not trigger a [`TransportEvent::Disconnected`]
+    /// event.
     pub fn close_connection(&mut self, id: usize) {
         self.inner.close_connection(id)
     }
@@ -280,8 +282,8 @@ impl Transport {
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`TransportInterface`] instead.
     ///
-    /// **Note:** This does not trigger `TransportEvent::Disconnected` events.
-    /// However, it will trigger a `TransportEvent::Inactive` event if no new
+    /// **Note:** This does not trigger [`TransportEvent::Disconnected`] events.
+    /// However, it will trigger a [`TransportEvent::Inactive`] event if no new
     /// connections or listeners are created before calling
     /// [`fetch_events()`](Self::fetch_events).
     pub fn close_all(&mut self) {
