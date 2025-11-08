@@ -13,8 +13,9 @@
 //! - Creates thread for the server = Client uses main thread
 //! - Client blocks until response is received
 //!
-//! Compare with `minimal` example to see the difference between [`Transport`]
-//! (raw bytes) and [`Messenger`] (typed messages).
+//! Compare with `minimal` example to see the difference between
+//! [`rustcomm::Transport`] (raw bytes) and [`rustcomm::Messenger`] (typed
+//! messages).
 //!
 //! # Usage
 //!

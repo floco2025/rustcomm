@@ -9,10 +9,10 @@
 //! instead of the 10 seconds it would take sequentially.
 //!
 //! This example also demonstrates graceful server shutdown. After the client
-//! completes, it calls [`close_all()`] on the server interface, which closes
-//! all connections and listeners. When worker threads call [`fetch_events()`],
-//! they receive an [`Inactive`](MessengerEvent::Inactive) event and exit
-//! cleanly.
+//! completes, it calls [`MessengerInterface::close_all()`] on the server
+//! interface, which closes all connections and listeners. When worker threads
+//! call [`Messenger::fetch_events()`], they receive an
+//! [`Inactive`](MessengerEvent::Inactive) event and exit cleanly.
 
 use bincode::{Decode, Encode};
 use config::Config;
