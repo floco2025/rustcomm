@@ -1,9 +1,10 @@
 //! Optional bincode serialization helpers.
 //!
-//! This module provides convenience wrappers for using bincode 2.0 with rustcomm.
-//! Rustcomm's core is serialization-agnostic - you can use any serialization
-//! approach (bincode, serde-based formats, hand-written, etc.). This module is
-//! available when the `bincode` feature is enabled (enabled by default).
+//! This module provides convenience wrappers for using [bincode
+//! 2.0](https://docs.rs/bincode) with rustcomm. Rustcomm's core is
+//! serialization-agnostic - you can use any serialization approach (bincode,
+//! serde-based formats, hand-written, etc.). This module is available when the
+//! `bincode` feature is enabled (enabled by default).
 
 use crate::error::Error;
 use crate::Message;
