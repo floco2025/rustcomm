@@ -317,7 +317,8 @@ impl Transport {
     ///
     /// **Note:** This does not trigger `TransportEvent::Disconnected` events.
     /// However, it will trigger a `TransportEvent::Inactive` event if no new
-    /// connections or listeners are created before calling [`fetch_events()`].
+    /// connections or listeners are created before calling
+    /// [`fetch_events()`](Self::fetch_events).
     pub fn close_all(&mut self) {
         self.inner.close_all()
     }

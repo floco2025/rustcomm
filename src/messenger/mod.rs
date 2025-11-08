@@ -385,7 +385,7 @@ impl Messenger {
     ///
     /// **Note:** This does not trigger `MessengerEvent::Disconnected` events.
     /// However, it will trigger a `MessengerEvent::Inactive` event if no new
-    /// connections or listeners are created before calling [`fetch_events()`].
+    /// connections or listeners are created before calling [`fetch_events()`](Self::fetch_events).
     #[instrument(skip(self))]
     pub fn close_all(&mut self) {
         // Clean up all receive buffers
