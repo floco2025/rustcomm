@@ -393,8 +393,8 @@ impl Transport {
 
     /// Blocks until transport events are available and returns them.
     ///
-    /// Returns `TransportEvent::Inactive` if the transport has no connections
-    /// or listeners.
+    /// Returns [`TransportEvent::Inactive`] if the [`Transport`] has no
+    /// connections or listeners.
     ///
     /// Only returns unrecoverable errors. Recoverable errors are handled by the
     /// returned events.

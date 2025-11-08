@@ -124,18 +124,14 @@ impl Messenger {
     }
 }
 
+// ============================================================================
+// Public Methods
+// ============================================================================
+
 impl Messenger {
     /// Starts listening for incoming connections on the specified address.
     ///
-    /// Returns a tuple of (listener_id, socket_addr) where:
-    /// - `listener_id`: Can be used with
-    ///   [`close_listener()`](Self::close_listener) to stop listening. Note:
-    ///   This ID cannot be used for sending messages - only for closing the
-    ///   listener.
-    /// - `socket_addr`: The actual address being listened on (useful when
-    ///   binding to port 0 for dynamic allocation).
-    ///
-    /// Multiple listeners can be added to listen on different addresses/ports.
+    /// Delegates to [`Transport::listen()`]. See that method for full documentation.
     #[instrument(skip(self, addr))]
     pub fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
         self.transport.listen(addr)
@@ -143,44 +139,35 @@ impl Messenger {
 
     /// Initiates a connection to the specified address.
     ///
-    /// The connection is established asynchronously. You will receive a
-    /// `MessengerEvent::Connected` event when the connection is fully
-    /// established, or `MessengerEvent::ConnectionFailed` if it fails.
-    ///
-    /// Returns a tuple of (connection_id, socket_addr) where:
-    /// - `connection_id`: Use this ID to send messages to this connection.
-    /// - `socket_addr`: The peer address that was connected to (useful when you
-    ///   pass multiple addresses or use DNS names and want to know which address
-    ///   was actually used).
+    /// Delegates to [`Transport::connect()`]. See that method for full documentation.
     #[instrument(skip(self, addr))]
     pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
         self.transport.connect(addr)
     }
-}
 
-// ============================================================================
-// Public Methods
-// ============================================================================
-
-impl Messenger {
     /// Gets a MessengerInterface for sending messages from other threads.
     pub fn get_messenger_interface(&self) -> MessengerInterface {
         let transport_interface = self.transport.get_transport_interface();
         MessengerInterface::new(transport_interface, self.registry.clone())
     }
 
-    /// Gets the local socket addresses, if any.
+    /// Gets the local socket addresses of all active listeners.
+    ///
+    /// Delegates to [`Transport::get_listener_addresses()`]. See that method for full documentation.
     pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
         self.transport.get_listener_addresses()
     }
 
     /// Blocks until messenger events are available and returns them.
     ///
-    /// Returns `MessengerEvent::Inactive` if the transport has no connections
-    /// or listeners.
+    /// Returns [`MessengerEvent::Inactive`] if the [`Transport`] has no
+    /// connections or listeners.
     ///
     /// Only returns unrecoverable errors. Recoverable errors are handled by the
     /// returned events.
+    ///
+    /// **Note:** This method delegates to [`Transport::fetch_events()`] and
+    /// adds message deserialization on top of the raw transport events.
     #[instrument(skip(self))]
     pub fn fetch_events(&mut self) -> Result<Vec<MessengerEvent>, Error> {
         let mut dispatch_events = Vec::new();
@@ -352,13 +339,11 @@ impl Messenger {
 
     /// Closes a connection by its ID.
     ///
+    /// Delegates to [`Transport::close_connection()`]. Additionally cleans up the
+    /// message receive buffer for this connection.
+    ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
-    ///
-    /// Ignores non-existent connection ids, because the connection might have
-    /// been closed already internally.
-    ///
-    /// **Note:** This does not trigger a `MessengerEvent::Disconnected` event.
     #[instrument(skip(self))]
     pub fn close_connection(&mut self, id: usize) {
         // Clean up receive buffer for this connection
@@ -368,11 +353,10 @@ impl Messenger {
 
     /// Closes a listener by its ID.
     ///
+    /// Delegates to [`Transport::close_listener()`]. See that method for full documentation.
+    ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
-    ///
-    /// Ignores non-existent listener ids, because the listener might have been
-    /// closed already internally.
     #[instrument(skip(self))]
     pub fn close_listener(&mut self, id: usize) {
         self.transport.close_listener(id);
@@ -380,12 +364,11 @@ impl Messenger {
 
     /// Closes all connections and listeners.
     ///
+    /// Delegates to [`Transport::close_all()`]. Additionally cleans up all
+    /// message receive buffers.
+    ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
-    ///
-    /// **Note:** This does not trigger `MessengerEvent::Disconnected` events.
-    /// However, it will trigger a `MessengerEvent::Inactive` event if no new
-    /// connections or listeners are created before calling [`fetch_events()`](Self::fetch_events).
     #[instrument(skip(self))]
     pub fn close_all(&mut self) {
         // Clean up all receive buffers
