@@ -105,10 +105,10 @@ impl Messenger {
         Self::new_with_transport(transport, config, registry, name)
     }
 
-    /// Creates a new Messenger instance with an explicitly provided transport.
+    /// Creates a new Messenger instance with a custom [`Transport`] implementation.
     ///
-    /// This is useful for advanced use cases where you need more control over
-    /// transport creation. For most cases, use [`new()`](Self::new) or
+    /// This is only useful if you've implemented a custom transport type. For
+    /// standard TCP/TLS transports, use [`new()`](Self::new) or
     /// [`new_named()`](Self::new_named) instead.
     pub fn new_with_transport(
         transport: Transport,
