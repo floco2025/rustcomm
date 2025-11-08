@@ -11,6 +11,10 @@
 //! - Makes 2 outgoing connections (to each other peer's listener)
 //! - Results in 4 total bidirectional connections per peer
 //!
+//! **Note:** The 2 listeners per peer are for demonstration purposes only. In
+//! practice, a single listener is sufficient - you don't need separate
+//! listeners for different peers.
+//!
 //! ## Key Features
 //!
 //! - [`Messenger::new(config)`](Messenger::new) - Creates instance without
