@@ -35,8 +35,8 @@ pub(crate) enum SendRequest {
 /// Thread-safe interface for sending data through a transport.
 ///
 /// Multiple threads can hold cloned instances to send data to the same
-/// transport. The owning thread holding the transport must call `fetch_events()`
-/// to process sends.
+/// transport. The owning thread holding the transport must call
+/// [`fetch_events()`] to process sends.
 #[derive(Debug, Clone)]
 pub struct TransportInterface {
     pub(crate) sender: Sender<SendRequest>,
@@ -148,7 +148,7 @@ impl TransportInterface {
     ///
     /// **Note:** This does not trigger `TransportEvent::Disconnected` events.
     /// However, it will trigger a `TransportEvent::Inactive` event if no new
-    /// connections or listeners are created before calling `fetch_events()`.
+    /// connections or listeners are created before calling [`fetch_events()`].
     pub fn close_all(&self) {
         let send_request = SendRequest::CloseAll;
         let _ = self.sender.send(send_request);

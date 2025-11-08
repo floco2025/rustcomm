@@ -247,8 +247,9 @@ impl Transport {
     /// Starts listening for incoming connections on the specified address.
     ///
     /// Returns a tuple of (listener_id, socket_addr) where:
-    /// - `listener_id`: Can be used with `close_listener()` to stop listening.
-    ///   Note: This ID cannot be used for sending data - only for closing the
+    /// - `listener_id`: Can be used with
+    ///   [`close_listener()`](Self::close_listener) to stop listening. Note:
+    ///   This ID cannot be used for sending data - only for closing the
     ///   listener.
     /// - `socket_addr`: The actual address being listened on (useful when
     ///   binding to port 0 for dynamic allocation).
@@ -288,7 +289,7 @@ impl Transport {
     /// Closes a connection by its ID.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `TransportInterface` instead.
+    /// [`TransportInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally.
@@ -301,7 +302,7 @@ impl Transport {
     /// Closes a listener by its ID.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `TransportInterface` instead.
+    /// [`TransportInterface`] instead.
     ///
     /// Ignores non-existent listener ids, because the listener might have been
     /// closed already internally.
@@ -312,11 +313,11 @@ impl Transport {
     /// Closes all connections and listeners.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `TransportInterface` instead.
+    /// [`TransportInterface`] instead.
     ///
     /// **Note:** This does not trigger `TransportEvent::Disconnected` events.
     /// However, it will trigger a `TransportEvent::Inactive` event if no new
-    /// connections or listeners are created before calling `fetch_events()`.
+    /// connections or listeners are created before calling [`fetch_events()`].
     pub fn close_all(&mut self) {
         self.inner.close_all()
     }
@@ -328,7 +329,7 @@ impl Transport {
     /// Sends data to a specific connection.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `TransportInterface` instead.
+    /// [`TransportInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -340,7 +341,7 @@ impl Transport {
     /// Sends data to multiple specific connections.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `TransportInterface` instead.
+    /// [`TransportInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -352,7 +353,7 @@ impl Transport {
     /// Broadcasts data to all connected clients.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `TransportInterface` instead.
+    /// [`TransportInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -364,7 +365,7 @@ impl Transport {
     /// Broadcasts data to all connected clients except one.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `TransportInterface` instead.
+    /// [`TransportInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -376,7 +377,7 @@ impl Transport {
     /// Broadcasts data to all connected clients except multiple specified ones.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `TransportInterface` instead.
+    /// [`TransportInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with

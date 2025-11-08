@@ -44,11 +44,11 @@ impl_downcast!(Message);
 // impl_message! Macro
 // ============================================================================
 
-/// Implements the Message trait for a type.
+/// Implements the [`Message`] trait for a message type.
 ///
-/// This macro provides the `message_id()` implementation, using the type name
-/// as the unique identifier. The message ID is used by the registry to route
-/// messages to the correct deserializer.
+/// This macro provides the [`message_id()`](Message::message_id)
+/// implementation, using the type name as the unique identifier. The message ID
+/// is used by the registry to route messages to the correct deserializer.
 ///
 /// # Example
 ///

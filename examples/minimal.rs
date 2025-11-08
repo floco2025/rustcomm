@@ -15,7 +15,7 @@
 //! - Client blocks until response is received
 //!
 //! Compare with `minimal_transport` example to see the difference between
-//! Transport (raw bytes) and Messenger (typed messages).
+//! [`Transport`] (raw bytes) and [`Messenger`] (typed messages).
 //!
 //! # Usage
 //!

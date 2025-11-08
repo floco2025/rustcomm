@@ -1,6 +1,6 @@
 //! P2P Mesh Network example - Fully connected peer-to-peer topology
 //!
-//! This example shows how each `Messenger` instance can both listen for
+//! This example shows how each [`Messenger`] instance can both listen for
 //! connections and connect to other peers, enabling peer-to-peer and mesh
 //! network architectures.
 //!
@@ -13,10 +13,12 @@
 //!
 //! ## Key Features
 //!
-//! - `Messenger::new(config)` - Creates instance without client/server role
-//!   commitment
-//! - `messenger.listen(addr)` - Adds listener for peers to connect to
-//! - `messenger.connect(addr)` - Initiates connections to peers
+//! - [`Messenger::new(config)`](Messenger::new) - Creates instance without
+//!   client/server role commitment
+//! - [`messenger.listen(addr)`](Messenger::listen) - Adds listener for peers to
+//!   connect to
+//! - [`messenger.connect(addr)`](Messenger::connect) - Initiates connections to
+//!   peers
 //! - Bidirectional communication over each connection
 //! - Each peer sends and receives messages from all others
 //!

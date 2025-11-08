@@ -1,6 +1,6 @@
 //! High-level message-oriented networking built on the transport layer.
 //!
-//! The `Messenger` handles serialization, deserialization, and dispatch of
+//! The [`Messenger`] handles serialization, deserialization, and dispatch of
 //! strongly-typed messages over any Transport.
 
 #[cfg(feature = "bincode")]
@@ -23,10 +23,11 @@ use tracing::{debug, error, instrument, warn};
 
 /// Messenger handler for client-server communication.
 ///
-/// Wraps a transport layer and adds message serialization/deserialization.
-/// Not thread-safe - use MessengerInterface for cross-thread communication.
+/// Wraps a transport layer and adds message serialization/deserialization. Not
+/// thread-safe - use [`MessengerInterface`] for cross-thread communication.
 ///
-/// The transport type (TCP or TLS) is automatically selected based on configuration.
+/// The transport type (TCP or TLS) is automatically selected based on
+/// configuration.
 pub struct Messenger {
     transport: Transport,
     registry: MessageRegistry,
@@ -107,7 +108,8 @@ impl Messenger {
     /// Creates a new Messenger instance with an explicitly provided transport.
     ///
     /// This is useful for advanced use cases where you need more control over
-    /// transport creation. For most cases, use `new()` or `new_named()` instead.
+    /// transport creation. For most cases, use [`new()`](Self::new) or
+    /// [`new_named()`](Self::new_named) instead.
     pub fn new_with_transport(
         transport: Transport,
         _config: &Config,
@@ -126,10 +128,12 @@ impl Messenger {
     /// Starts listening for incoming connections on the specified address.
     ///
     /// Returns a tuple of (listener_id, socket_addr) where:
-    /// - `listener_id`: Can be used with `close_listener()` to stop listening.
-    ///   Note: This ID cannot be used for sending messages - only for closing the listener.
-    /// - `socket_addr`: The actual address being listened on (useful when binding
-    ///   to port 0 for dynamic allocation).
+    /// - `listener_id`: Can be used with
+    ///   [`close_listener()`](Self::close_listener) to stop listening. Note:
+    ///   This ID cannot be used for sending messages - only for closing the
+    ///   listener.
+    /// - `socket_addr`: The actual address being listened on (useful when
+    ///   binding to port 0 for dynamic allocation).
     ///
     /// Multiple listeners can be added to listen on different addresses/ports.
     #[instrument(skip(self, addr))]
@@ -265,7 +269,7 @@ impl Messenger {
     /// Sends a message to a specific connection.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `MessengerInterface` instead.
+    /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -280,7 +284,7 @@ impl Messenger {
     /// Sends a message to multiple specific connections.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `MessengerInterface` instead.
+    /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -299,7 +303,7 @@ impl Messenger {
     /// Broadcasts a message to all connected clients.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `MessengerInterface` instead.
+    /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -314,7 +318,7 @@ impl Messenger {
     /// Broadcasts a message to all connected clients except one.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `MessengerInterface` instead.
+    /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -330,7 +334,7 @@ impl Messenger {
     /// ones.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `MessengerInterface` instead.
+    /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
@@ -349,7 +353,7 @@ impl Messenger {
     /// Closes a connection by its ID.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `MessengerInterface` instead.
+    /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally.
@@ -365,10 +369,10 @@ impl Messenger {
     /// Closes a listener by its ID.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `MessengerInterface` instead.
+    /// [`MessengerInterface`] instead.
     ///
-    /// Ignores non-existent listener ids, because the listener might have
-    /// been closed already internally.
+    /// Ignores non-existent listener ids, because the listener might have been
+    /// closed already internally.
     #[instrument(skip(self))]
     pub fn close_listener(&mut self, id: usize) {
         self.transport.close_listener(id);
@@ -377,11 +381,11 @@ impl Messenger {
     /// Closes all connections and listeners.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// `MessengerInterface` instead.
+    /// [`MessengerInterface`] instead.
     ///
     /// **Note:** This does not trigger `MessengerEvent::Disconnected` events.
     /// However, it will trigger a `MessengerEvent::Inactive` event if no new
-    /// connections or listeners are created before calling `fetch_events()`.
+    /// connections or listeners are created before calling [`fetch_events()`].
     #[instrument(skip(self))]
     pub fn close_all(&mut self) {
         // Clean up all receive buffers

@@ -22,7 +22,7 @@ pub type MessageSerializer = fn(&dyn Message, &mut Vec<u8>);
 ///
 /// # Function Signature
 ///
-/// ```text
+/// ```ignore
 /// fn(&[u8]) -> Result<Box<dyn Message>, Error>
 /// ```
 ///
@@ -52,14 +52,13 @@ pub(crate) struct CodecPair {
 ///
 /// # Usage
 ///
-/// ```text
+/// ```no_run
 /// use rustcomm::{MessageRegistry, Message, Error, impl_message};
 ///
 /// #[derive(Debug)]
 /// struct MyMessage {
 ///     data: String,
 /// }
-///
 /// impl_message!(MyMessage);
 ///
 /// // Define custom serialization functions
