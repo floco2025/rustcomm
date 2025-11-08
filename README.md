@@ -64,10 +64,8 @@ serialization format (bincode, serde, hand-written, etc.). Bincode example:
 
 ```rust
 use rustcomm::prelude::*;
-pub use bincode::{Decode, Encode};
-use config::Config;
 
-#[derive(Decode, Encode, Debug)]
+#[derive(bincode::Decode, bincode::Encode, Debug)]
 struct ChatMessage {
     user: String,
     text: String,
@@ -79,7 +77,7 @@ let mut registry = MessageRegistry::new();
 register_bincode_message!(registry, ChatMessage);
 
 // Create messenger with default TCP transport
-let config = Config::default();
+let config = config::Config::default();
 let mut messenger = Messenger::new(&config, &registry)?;
 
 // Start listening
@@ -109,9 +107,9 @@ loop {
 
 ## Configuration
 
-RustComm is configured through the [`config::Config`](https://docs.rs/config/)
-crate. You can use configuration files (TOML, YAML), environment variables, or
-build configs programmatically.
+RustComm is configured through the [`config`](https://docs.rs/config/) crate.
+You can use configuration files (TOML, YAML), environment variables, or build
+configs programmatically.
 
 ### Configuration Keys
 
@@ -195,9 +193,7 @@ let auth_messenger = Messenger::new_named(&config, &registry, "auth_server")?;
 #### From a file
 
 ```rust
-use config::Config;
-
-let config = Config::builder()
+let config = config::Config::builder()
     .add_source(config::File::with_name("config.toml"))
     .build()?;
 ```
@@ -205,9 +201,7 @@ let config = Config::builder()
 #### Programmatically
 
 ```rust
-use config::Config;
-
-let config = Config::builder()
+let config = config::Config::builder()
     .set_default("transport_type", "tls")?
     .set_default("tls_ca_cert", "/path/to/ca.crt")?
     .build()?;
@@ -216,9 +210,7 @@ let config = Config::builder()
 #### Environment variables
 
 ```rust
-use config::Config;
-
-let config = Config::builder()
+let config = config::Config::builder()
     .add_source(config::Environment::with_prefix("RUSTCOMM"))
     .build()?;
 ```
