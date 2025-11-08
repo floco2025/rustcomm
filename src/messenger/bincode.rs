@@ -42,9 +42,6 @@ macro_rules! register_bincode_message {
     };
 }
 
-// Re-export the macro with a shorter name in the bincode module namespace
-pub use register_bincode_message as register_message;
-
 // ============================================================================
 // Serialization
 // ============================================================================

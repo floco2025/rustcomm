@@ -44,7 +44,10 @@
 
 use bincode::{Decode, Encode};
 use config::Config;
-use rustcomm::{impl_message, Error, Message, MessageRegistry, Messenger, MessengerEvent};
+use rustcomm::{
+    impl_message, register_bincode_message, Error, Message, MessageRegistry, Messenger,
+    MessengerEvent,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -261,7 +264,7 @@ fn main() {
 
     // 1. Register Bincode message using the macro (easiest)
     println!("Registering BincodeMessage with macro...");
-    rustcomm::bincode::register_message!(registry, BincodeMessage);
+    register_bincode_message!(registry, BincodeMessage);
 
     // 2. Register JSON message manually with helper functions
     println!("Registering JsonMessage with custom JSON serialization...");
