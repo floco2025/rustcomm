@@ -15,8 +15,8 @@ use crate::Message;
 
 /// Registers a message type with a registry using bincode serialization.
 ///
-/// This macro simplifies the registration of message types by automatically
-/// generating the appropriate serializer and deserializer closures for bincode.
+/// This macro simplifies the registration of message types by providing
+/// the appropriate serializer and deserializer function pointers for bincode.
 ///
 /// # Example
 ///
