@@ -32,12 +32,13 @@ pub(crate) enum SendRequest {
     CloseAll,
 }
 
-/// Thread-safe interface for sending data through a transport.
+/// Thread-safe interface for sending data through a Transport.
 ///
-/// Multiple threads can hold cloned instances to send data to the same
-/// transport. The owning thread holding the transport must call
-/// [`Transport::fetch_events()`](super::Transport::fetch_events) to process
-/// sends.
+/// Allows multiple threads to send data to the same
+/// [`Transport`](super::Transport). Obtain an instance by calling
+/// [`Transport::get_transport_interface()`](super::Transport::get_transport_interface).
+///
+/// Multiple threads can hold cloned instances to send data concurrently.
 #[derive(Debug, Clone)]
 pub struct TransportInterface {
     pub(crate) sender: Sender<SendRequest>,

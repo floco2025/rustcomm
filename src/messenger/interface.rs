@@ -4,9 +4,11 @@ use crate::transport::TransportInterface;
 
 /// Thread-safe interface for sending messages through a Messenger.
 ///
-/// Wraps a [`TransportInterface`] and adds message serialization. Multiple
-/// threads can hold cloned instances to send messages to the same
-/// [`Messenger`](super::Messenger).
+/// Allows multiple threads to send messages to the same
+/// [`Messenger`](super::Messenger). Obtain an instance by calling
+/// [`Messenger::get_messenger_interface()`](super::Messenger::get_messenger_interface).
+///
+/// Multiple threads can hold cloned instances to send messages concurrently.
 #[derive(Clone)]
 pub struct MessengerInterface {
     transport_interface: TransportInterface,
