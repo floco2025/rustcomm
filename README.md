@@ -28,6 +28,7 @@ The repository includes several examples:
 - **minimal_transport** - Simplest transport-based (raw bytes) client-server
 - **p2p_mesh** - Peer-to-peer mesh network demonstration
 - **thread_pool** - Multi-threaded message processing with worker pool
+- **custom_serialization** - Using custom serialization instead of bincode
 - **chat** - Full-featured chat application with multiple server variants
 
 Run an example:
