@@ -2,41 +2,6 @@
 //!
 //! This module provides the [`Transport`] struct which selects between TCP and
 //! TLS transports based on configuration.
-//!
-//! # Design Decision: Dynamic Dispatch
-//!
-//! This module uses trait objects (`Box<dyn TransportImpl>`) rather than
-//! generic type parameters to enable **runtime transport selection from
-//! configuration files**.
-//!
-//! ## Why Dynamic Dispatch?
-//!
-//! **Runtime configuration**: Transport type is chosen at runtime based on
-//! config files (e.g., `transport_type = "tcp"`). This allows the same
-//! compiled binary to use different transports without recompilation.
-//!
-//! With generics (`Transport<T: TransportImpl>`), transport selection must
-//! happen at compile time. Users would need to either:
-//! - Hard-code the transport type, or
-//! - Implement their own runtime selection with `Box<dyn>` or enums anyway
-//!
-//! ## Performance
-//!
-//! The vtable overhead (~1-2ns per call) is negligible compared to network
-//! I/O latency (microseconds to milliseconds). We're bottlenecked by the
-//! network, not function dispatch.
-//!
-//! ## Alternatives Considered
-//!
-//! - **Generic parameters**: `Transport<T: TransportImpl>`
-//!   - ✅ More idiomatic Rust, better optimization potential
-//!   - ❌ Requires compile-time transport selection
-//!   - ❌ Users must implement runtime selection themselves
-//!
-//! - **Dynamic dispatch**: `Box<dyn TransportImpl>` (current choice)
-//!   - ✅ Built-in runtime configuration support
-//!   - ✅ Same binary works with any transport
-//!   - ⚠️ Small vtable overhead (negligible for network I/O)
 
 mod interface;
 mod tcp;
@@ -132,7 +97,7 @@ trait TransportImpl: Send {
 /// # Configuration Keys
 ///
 /// - `transport_type`: Either "tcp" or "tls" (defaults to "tcp")
-/// - Plus all keys for the specific transport type (see `TcpTransport` and `TlsTransport`)
+/// - Transport-specific keys (e.g., `max_read_size` for TCP, `tls_server_cert` for TLS)
 ///
 /// # Example
 ///
@@ -195,7 +160,7 @@ impl Transport {
     /// # Configuration Keys
     ///
     /// - `transport_type`: Either "tcp" or "tls"
-    /// - Plus all keys for the specific transport type
+    /// - Transport-specific keys (e.g., `max_read_size` for TCP, `tls_server_cert` for TLS)
     ///
     /// # Example
     ///
