@@ -1,7 +1,9 @@
 //! Async RPC example using RpcMessenger
 //!
-//! This example demonstrates rustcomm's built-in async RPC system.
-//! Uses futures::executor - no tokio required!
+//! This example demonstrates rustcomm's built-in async RPC system. Uses
+//! futures::executor - no tokio required!
+//! 
+//! WORK IN PROGRESS. This is very basic now, but it will change significantly.
 
 use bincode::{Decode, Encode};
 use config::Config;
