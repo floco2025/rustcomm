@@ -1,8 +1,9 @@
-//! Request-response communication layer on top of Messenger
+//! RPC (Remote Procedure Call) communication layer on top of Messenger
 //!
-//! This module provides a higher-level abstraction for request-response
-//! patterns, allowing async communication while the underlying Messenger
-//! remains synchronous.
+//! ⚠️ **WORK IN PROGRESS - DO NOT USE** ⚠️
+//!
+//! This module is under active development and the API will change significantly.
+//! Do not use this until it if finished.
 
 use crate::{
     Message, MessageRegistry, Messenger, MessengerEvent, MessengerInterface, RequestError,
@@ -14,30 +15,30 @@ use std::thread;
 use tracing::{debug, error, instrument};
 
 // ============================================================================
-// impl_req_resp_message! Macro
+// impl_rpc_message! Macro
 // ============================================================================
 
-/// Implements the [`Message`] trait for a request-response message type.
+/// Implements the [`Message`] trait for an RPC message type.
 ///
 /// This macro provides the full [`Message`] trait implementation including
-/// request-response support via [`get_request_id()`](Message::get_request_id)
+/// RPC support via [`get_request_id()`](Message::get_request_id)
 /// and [`set_request_id()`](Message::set_request_id). The message type must
 /// have a field that stores the request ID.
 ///
 /// # Example
 ///
 /// ```no_run
-/// use rustcomm::impl_req_resp_message;
+/// use rustcomm::impl_rpc_message;
 ///
 /// #[derive(Debug)]
 /// struct Request {
 ///     request_id: u64,
 ///     data: String,
 /// }
-/// impl_req_resp_message!(Request, request_id);
+/// impl_rpc_message!(Request, request_id);
 /// ```
 #[macro_export]
-macro_rules! impl_req_resp_message {
+macro_rules! impl_rpc_message {
     ($type:ty, $id_field:ident) => {
         impl $crate::Message for $type {
             fn message_id(&self) -> &str {
@@ -61,15 +62,15 @@ struct PendingRequest {
     sender: oneshot::Sender<Box<dyn Message>>,
 }
 
-/// Request-response messenger that wraps a Messenger for async RPC-style communication
-pub struct ReqRespMessenger {
+/// RPC messenger that wraps a Messenger for async RPC-style communication
+pub struct RpcMessenger {
     interface: MessengerInterface,
     pending_requests: Arc<Mutex<HashMap<u64, PendingRequest>>>,
     next_request_id: Arc<Mutex<u64>>,
 }
 
-impl ReqRespMessenger {
-    /// Create a new ReqRespMessenger from configuration and message registry
+impl RpcMessenger {
+    /// Create a new RpcMessenger from configuration and message registry
     ///
     /// This creates an internal [`Messenger`] and starts the event loop in a
     /// background thread. The messenger is owned by the event loop and cannot
@@ -96,7 +97,7 @@ impl ReqRespMessenger {
         })
     }
 
-    /// Create a new ReqRespMessenger with a named configuration namespace
+    /// Create a new RpcMessenger with a named configuration namespace
     ///
     /// This creates an internal [`Messenger`] using the named config and starts
     /// the event loop in a background thread. The messenger is owned by the

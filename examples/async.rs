@@ -1,6 +1,6 @@
-//! Async request-response example using ReqRespMessenger
+//! Async RPC example using RpcMessenger
 //!
-//! This example demonstrates rustcomm's built-in async request-response system.
+//! This example demonstrates rustcomm's built-in async RPC system.
 //! Uses futures::executor - no tokio required!
 
 use bincode::{Decode, Encode};
@@ -8,8 +8,8 @@ use config::Config;
 use futures::executor::block_on;
 use futures::join;
 use rustcomm::{
-    impl_req_resp_message, register_bincode_message, MessageRegistry, Messenger, MessengerEvent,
-    ReqRespMessenger,
+    impl_rpc_message, register_bincode_message, MessageRegistry, Messenger, MessengerEvent,
+    RpcMessenger,
 };
 use std::net::SocketAddr;
 use std::thread;
@@ -22,7 +22,7 @@ struct Request {
 }
 
 // Use the macro to implement Message trait with request-response support
-impl_req_resp_message!(Request, request_id);
+impl_rpc_message!(Request, request_id);
 
 // Response message with ID to match back to request
 #[derive(Encode, Decode, Debug, Default)]
@@ -32,7 +32,7 @@ struct Response {
 }
 
 // Use the macro to implement Message trait with request-response support
-impl_req_resp_message!(Response, request_id);
+impl_rpc_message!(Response, request_id);
 
 /// Server echoes back every request as a response
 fn run_server(config: &Config, registry: &MessageRegistry) -> SocketAddr {
@@ -79,11 +79,11 @@ fn main() {
     let server_addr = run_server(&config, &registry);
     println!("[Main] Server started at {}", server_addr);
 
-    // Create ReqRespMessenger - creates its own messenger and starts event loop
+    // Create RpcMessenger - creates its own messenger and starts event loop
     let req_resp =
-        ReqRespMessenger::new(&config, &registry).expect("Failed to create ReqRespMessenger");
+        RpcMessenger::new(&config, &registry).expect("Failed to create RpcMessenger");
 
-    // Connect to server using ReqRespMessenger's connect() method
+    // Connect to server using RpcMessenger's connect() method
     let (server_id, _) = req_resp.connect(server_addr).expect("Failed to connect");
     println!("[Main] Connected to server with id {}", server_id);
 

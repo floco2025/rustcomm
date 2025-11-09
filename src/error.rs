@@ -138,7 +138,7 @@ pub enum Error {
 /// Errors that can occur during request-response operations.
 ///
 /// These errors are specific to the async request-response layer provided by
-/// the `req-resp` feature. They represent failure modes when awaiting responses
+/// the `rpc` feature. They represent failure modes when awaiting responses
 /// to sent requests.
 #[derive(Error, Debug)]
 pub enum RequestError {

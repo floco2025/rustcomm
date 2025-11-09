@@ -238,10 +238,10 @@
 // Internal-only modules
 pub(crate) mod error;
 pub(crate) mod messenger;
-pub(crate) mod transport;
+pub mod transport;
 
-#[cfg(feature = "req-resp")]
-pub(crate) mod req_resp;
+#[cfg(feature = "rpc")]
+pub mod rpc;
 
 // These are the intended public API
 pub use error::Error;
@@ -252,10 +252,10 @@ pub use messenger::{
 pub use transport::{Transport, TransportEvent, TransportInterface};
 
 // Request-response support (optional feature)
-#[cfg(feature = "req-resp")]
+#[cfg(feature = "rpc")]
 pub use error::RequestError;
-#[cfg(feature = "req-resp")]
-pub use req_resp::ReqRespMessenger;
+#[cfg(feature = "rpc")]
+pub use rpc::RpcMessenger;
 
 // Bincode support (optional feature, enabled by default)
 #[cfg(feature = "bincode")]
@@ -271,13 +271,13 @@ pub mod prelude {
     };
     pub use crate::transport::{Transport, TransportEvent, TransportInterface};
 
-    // Request-response support (optional feature)
-    #[cfg(feature = "req-resp")]
+    // RPC support (optional feature)
+    #[cfg(feature = "rpc")]
     pub use crate::error::RequestError;
-    #[cfg(feature = "req-resp")]
-    pub use crate::impl_req_resp_message;
-    #[cfg(feature = "req-resp")]
-    pub use crate::req_resp::ReqRespMessenger;
+    #[cfg(feature = "rpc")]
+    pub use crate::impl_rpc_message;
+    #[cfg(feature = "rpc")]
+    pub use crate::rpc::RpcMessenger;
 
     // Bincode support (optional feature, enabled by default)
     #[cfg(feature = "bincode")]
