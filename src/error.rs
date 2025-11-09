@@ -18,10 +18,6 @@ pub enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    /// The provided socket address could not be parsed or resolved.
-    #[error("Invalid socket address")]
-    InvalidAddress,
-
     /// Attempted to operate on a connection ID that doesn't exist.
     #[error("Connection {id} not found")]
     ConnectionNotFound {
@@ -35,10 +31,6 @@ pub enum Error {
         /// The listener ID that was not found.
         id: usize,
     },
-
-    /// Internal polling mechanism encountered an error.
-    #[error("Poll error: {0}")]
-    PollError(String),
 
     // ============================================================================
     // Message Serialization Errors

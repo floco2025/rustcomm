@@ -1,6 +1,8 @@
 use super::registry::MessageRegistry;
 use super::{serialize_message, Message};
 use crate::transport::TransportInterface;
+use crate::Error;
+use std::net::SocketAddr;
 
 /// Thread-safe interface for sending messages through a Messenger.
 ///
@@ -21,6 +23,36 @@ impl MessengerInterface {
             transport_interface,
             registry,
         }
+    }
+
+    /// Opens a new listener on the specified address.
+    ///
+    /// This is thread-safe and blocks until the listener is created.
+    /// The Transport's event loop will process the request and return the
+    /// listener ID and actual bound address.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// [`super::Messenger::listen()`] directly for better performance.
+    pub fn listen<A: std::net::ToSocketAddrs>(
+        &self,
+        addr: A,
+    ) -> Result<(usize, SocketAddr), Error> {
+        self.transport_interface.listen(addr)
+    }
+
+    /// Opens a new connection to the specified address.
+    ///
+    /// This is thread-safe and blocks until the connection is established.
+    /// The Transport's event loop will process the request and return the
+    /// connection ID and peer's socket address.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// [`super::Messenger::connect()`] directly for better performance.
+    pub fn connect<A: std::net::ToSocketAddrs>(
+        &self,
+        addr: A,
+    ) -> Result<(usize, SocketAddr), Error> {
+        self.transport_interface.connect(addr)
     }
 
     /// Queues a message to be sent to a specific connection.
@@ -122,5 +154,16 @@ impl MessengerInterface {
     /// connections or listeners are created before calling [`Messenger::fetch_events()`](super::Messenger::fetch_events).
     pub fn close_all(&self) {
         self.transport_interface.close_all();
+    }
+
+    /// Gets the local socket addresses of all active listeners.
+    ///
+    /// This is thread-safe and blocks until the addresses are retrieved.
+    /// The Transport's event loop will process the request and return the addresses.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// [`super::Messenger::get_listener_addresses()`] directly for better performance.
+    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
+        self.transport_interface.get_listener_addresses()
     }
 }

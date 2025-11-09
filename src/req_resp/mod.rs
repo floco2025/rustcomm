@@ -1,9 +1,10 @@
 //! Request-response communication layer on top of Messenger
 //!
-//! This module provides a higher-level abstraction for request-response patterns,
-//! allowing async communication while the underlying Messenger remains synchronous.
+//! This module provides a higher-level abstraction for request-response
+//! patterns, allowing async communication while the underlying Messenger
+//! remains synchronous.
 
-use crate::{Message, Messenger, MessengerEvent, MessengerInterface, RequestError};
+use crate::{Message, Messenger, MessengerEvent, MessengerInterface, MessageRegistry, RequestError};
 use futures::channel::oneshot;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -66,8 +67,14 @@ pub struct RequestResponse {
 }
 
 impl RequestResponse {
-    /// Create a new RequestResponse and start the event loop in a background thread
-    pub fn new(messenger: Messenger) -> Self {
+    /// Create a new RequestResponse from configuration and message registry
+    /// 
+    /// This creates an internal [`Messenger`] and starts the event loop in a
+    /// background thread. The messenger is owned by the event loop and cannot
+    /// be accessed directly.
+    pub fn new(config: &config::Config, registry: &MessageRegistry) -> Result<Self, crate::Error> {
+        let messenger = Messenger::new(config, registry)?;
+        
         // Get interface before moving messenger
         let interface = messenger.get_messenger_interface();
 
@@ -80,14 +87,46 @@ impl RequestResponse {
             Self::run_event_loop(messenger, pending_requests_clone);
         });
 
-        Self {
+        Ok(Self {
             interface,
             pending_requests,
             next_request_id: Arc::new(Mutex::new(0)),
-        }
+        })
+    }
+    
+    /// Create a new RequestResponse with a named configuration namespace
+    /// 
+    /// This creates an internal [`Messenger`] using the named config and starts
+    /// the event loop in a background thread. The messenger is owned by the
+    /// event loop and cannot be accessed directly.
+    pub fn new_named(
+        config: &config::Config,
+        registry: &MessageRegistry,
+        name: &str,
+    ) -> Result<Self, crate::Error> {
+        let messenger = Messenger::new_named(config, registry, name)?;
+        
+        // Get interface before moving messenger
+        let interface = messenger.get_messenger_interface();
+
+        // Shared state for pending requests
+        let pending_requests = Arc::new(Mutex::new(HashMap::new()));
+        let pending_requests_clone = pending_requests.clone();
+
+        // Spawn event loop thread
+        thread::spawn(move || {
+            Self::run_event_loop(messenger, pending_requests_clone);
+        });
+
+        Ok(Self {
+            interface,
+            pending_requests,
+            next_request_id: Arc::new(Mutex::new(0)),
+        })
     }
 
-    /// Internal event loop that processes messages and completes pending requests
+    /// Internal event loop that processes messages and completes pending
+    /// requests
     fn run_event_loop(
         mut messenger: Messenger,
         pending_requests: Arc<Mutex<HashMap<u64, PendingRequest>>>,
@@ -98,7 +137,8 @@ impl RequestResponse {
             for event in events {
                 match event {
                     MessengerEvent::Inactive => {
-                        // No connections or listeners remain, terminate event loop
+                        // No connections or listeners remain, terminate event
+                        // loop
                         break;
                     }
                     MessengerEvent::Connected { .. } => {
@@ -112,8 +152,9 @@ impl RequestResponse {
                         let mut pending = pending_requests.lock().unwrap();
                         pending.retain(|_request_id, pending_req| {
                             if pending_req.connection_id == id {
-                                // Connection closed, drop the sender to signal cancellation
-                                // This will cause the receiver to get a Canceled error
+                                // Connection closed, drop the sender to signal
+                                // cancellation This will cause the receiver to
+                                // get a Canceled error
                                 false
                             } else {
                                 true
@@ -121,13 +162,16 @@ impl RequestResponse {
                         });
                     }
                     MessengerEvent::Message { msg, id } => {
-                        // Check if this message has a request ID (is a response)
+                        // Check if this message has a request ID (is a
+                        // response)
                         if let Some(request_id) = msg.get_request_id() {
                             let mut pending = pending_requests.lock().unwrap();
                             if let Some(pending_req) = pending.remove(&request_id) {
-                                // Security check: ensure response came from the correct connection
+                                // Security check: ensure response came from the
+                                // correct connection
                                 if pending_req.connection_id != id {
-                                    // TODO: Proper error handling - log security violation and drop message
+                                    // TODO: Proper error handling - log
+                                    // security violation and drop message
                                     eprintln!(
                                         "Security violation: response for request {} came from connection {} but expected connection {}",
                                         request_id, id, pending_req.connection_id
@@ -223,19 +267,26 @@ impl RequestResponse {
     // ============================================================================
 
     /// Listen for incoming connections on the specified address.
-    /// Delegates to the underlying Messenger's transport.
-    /// Note: This requires access to the Messenger, which is owned by the event loop.
-    /// Consider using the Messenger directly before creating RequestResponse if you need to listen.
-    // pub fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
-    //     // Cannot implement - we don't have mutable access to Messenger
-    // }
+    ///
+    /// This is thread-safe and blocks until the listener is created. Delegates
+    /// to the underlying MessengerInterface.
+    pub fn listen<A: std::net::ToSocketAddrs>(
+        &self,
+        addr: A,
+    ) -> Result<(usize, std::net::SocketAddr), crate::Error> {
+        self.interface.listen(addr)
+    }
 
     /// Connect to a remote address.
-    /// Note: This requires access to the Messenger, which is owned by the event loop.
-    /// Consider using the Messenger directly before creating RequestResponse if you need to connect.
-    // pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
-    //     // Cannot implement - we don't have mutable access to Messenger
-    // }
+    ///
+    /// This is thread-safe and blocks until the connection is established.
+    /// Delegates to the underlying MessengerInterface.
+    pub fn connect<A: std::net::ToSocketAddrs>(
+        &self,
+        addr: A,
+    ) -> Result<(usize, std::net::SocketAddr), crate::Error> {
+        self.interface.connect(addr)
+    }
 
     /// Close a connection by its ID.
     pub fn close_connection(&self, id: usize) {
@@ -250,5 +301,13 @@ impl RequestResponse {
     /// Close all connections and listeners.
     pub fn close_all(&self) {
         self.interface.close_all();
+    }
+
+    /// Gets the local socket addresses of all active listeners.
+    ///
+    /// This is thread-safe and blocks until the addresses are retrieved.
+    /// Delegates to the underlying MessengerInterface.
+    pub fn get_listener_addresses(&self) -> Vec<std::net::SocketAddr> {
+        self.interface.get_listener_addresses()
     }
 }

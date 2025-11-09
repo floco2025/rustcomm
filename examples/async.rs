@@ -2,13 +2,6 @@
 //!
 //! This example demonstrates rustcomm's built-in async request-response system.
 //! Uses futures::executor - no tokio required!
-//!
-//! ## Key Concepts
-//!
-//! - RequestResponse wraps Messenger and provides async send_request()
-//! - Event loop runs in background thread automatically
-//! - Requests get unique IDs to match responses
-//! - Messages implement get_request_id() and set_request_id()
 
 use bincode::{Decode, Encode};
 use config::Config;
@@ -86,13 +79,13 @@ fn main() {
     let server_addr = run_server(&config, &registry);
     println!("[Main] Server started at {}", server_addr);
 
-    // Create client messenger and connect to server
-    let mut messenger = Messenger::new(&config, &registry).expect("Failed to create messenger");
-    let (server_id, _) = messenger.connect(server_addr).expect("Failed to connect");
-    println!("[Main] Connected to server with id {}", server_id);
+    // Create RequestResponse - creates its own messenger and starts event loop
+    let req_resp =
+        RequestResponse::new(&config, &registry).expect("Failed to create RequestResponse");
 
-    // Create RequestResponse wrapper (starts event loop automatically)
-    let req_resp = RequestResponse::new(messenger);
+    // Connect to server using RequestResponse's connect() method
+    let (server_id, _) = req_resp.connect(server_addr).expect("Failed to connect");
+    println!("[Main] Connected to server with id {}", server_id);
 
     // Now we can make concurrent async requests!
     println!("\n[Main] Sending 3 concurrent requests...\n");

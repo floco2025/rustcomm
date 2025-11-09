@@ -225,10 +225,9 @@ impl TlsTransport {
         }
 
         let requested_addr = addr
-            .to_socket_addrs()
-            .map_err(|_| Error::InvalidAddress)?
+            .to_socket_addrs()?
             .next()
-            .ok_or(Error::InvalidAddress)?;
+            .expect("Address resolution returned empty iterator");
         let mut listener = TcpListener::bind(requested_addr)?;
 
         let listener_id = self.next_id;
@@ -254,10 +253,9 @@ impl TlsTransport {
         }
 
         let peer_addr = addr
-            .to_socket_addrs()
-            .map_err(|_| Error::InvalidAddress)?
+            .to_socket_addrs()?
             .next()
-            .ok_or(Error::InvalidAddress)?;
+            .expect("Address resolution returned empty iterator");
         let mut stream = TcpStream::connect(peer_addr)?;
         stream.set_nodelay(true)?;
 
@@ -576,6 +574,18 @@ impl TlsTransport {
 
         for request in send_requests {
             match request {
+                SendRequest::Listen { addr, response } => {
+                    let result = self.listen(addr);
+                    if let Err(e) = response.send(result) {
+                        error!("Failed to send listen response: {:?}", e);
+                    }
+                }
+                SendRequest::Connect { addr, response } => {
+                    let result = self.connect(addr);
+                    if let Err(e) = response.send(result) {
+                        error!("Failed to send connect response: {:?}", e);
+                    }
+                }
                 SendRequest::SendTo { id, data } => self.send_to(id, data),
                 SendRequest::SendToMany { ids, data } => self.send_to_many(&ids, data),
                 SendRequest::Broadcast { data } => self.broadcast(data),
@@ -588,6 +598,12 @@ impl TlsTransport {
                 SendRequest::CloseConnection { id } => self.close_connection(id),
                 SendRequest::CloseListener { id } => self.close_listener(id),
                 SendRequest::CloseAll => self.close_all(),
+                SendRequest::GetListenerAddresses { response } => {
+                    let addresses = self.get_listener_addresses();
+                    if let Err(e) = response.send(addresses) {
+                        error!("Failed to send listener addresses response: {:?}", e);
+                    }
+                }
             }
         }
     }
