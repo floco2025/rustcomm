@@ -98,23 +98,23 @@ fn main() {
     println!("\n[Main] Sending 3 concurrent requests...\n");
 
     // Use futures::executor to run async code without tokio
-    let (r1, r2, r3) = block_on(async {
+    let results = block_on(async {
         join!(
-            req_resp.send_request(
+            req_resp.send_request::<Response>(
                 server_id,
                 Box::new(Request {
                     text: "Hello".to_string(),
                     ..Default::default()
                 })
             ),
-            req_resp.send_request(
+            req_resp.send_request::<Response>(
                 server_id,
                 Box::new(Request {
                     text: "World".to_string(),
                     ..Default::default()
                 })
             ),
-            req_resp.send_request(
+            req_resp.send_request::<Response>(
                 server_id,
                 Box::new(Request {
                     text: "Async".to_string(),
@@ -125,7 +125,7 @@ fn main() {
     });
 
     println!("\n[Main] All responses received:");
-    println!("  Response 1: {}", r1.downcast_ref::<Response>().unwrap().text);
-    println!("  Response 2: {}", r2.downcast_ref::<Response>().unwrap().text);
-    println!("  Response 3: {}", r3.downcast_ref::<Response>().unwrap().text);
+    println!("  Response 1: {}", results.0.unwrap().text);
+    println!("  Response 2: {}", results.1.unwrap().text);
+    println!("  Response 3: {}", results.2.unwrap().text);
 }

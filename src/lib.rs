@@ -253,6 +253,8 @@ pub use transport::{Transport, TransportEvent, TransportInterface};
 
 // Request-response support (optional feature)
 #[cfg(feature = "req-resp")]
+pub use error::RequestError;
+#[cfg(feature = "req-resp")]
 pub use req_resp::RequestResponse;
 
 // Bincode support (optional feature, enabled by default)
@@ -270,6 +272,8 @@ pub mod prelude {
     pub use crate::transport::{Transport, TransportEvent, TransportInterface};
 
     // Request-response support (optional feature)
+    #[cfg(feature = "req-resp")]
+    pub use crate::error::RequestError;
     #[cfg(feature = "req-resp")]
     pub use crate::impl_req_resp_message;
     #[cfg(feature = "req-resp")]
