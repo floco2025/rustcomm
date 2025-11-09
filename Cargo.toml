@@ -20,10 +20,12 @@ thiserror = "1.0"
 rustls = { version = "0.23", optional = true }
 rustls-pemfile = { version = "2.0", optional = true }
 webpki-roots = { version = "0.26", optional = true }
+futures = { version = "0.3", optional = true }
 
 [features]
-default = ["bincode", "tls"]
+default = ["bincode", "tls", "req-resp"]
 tls = ["rustls", "rustls-pemfile", "webpki-roots"]
+req-resp = ["futures"]
 
 [dev-dependencies]
 rand = "0.9.2"
@@ -36,6 +38,7 @@ bincode = { version = "2.0", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rmp-serde = "1.1"
+tokio = { version = "1", features = ["full"] }
 
 [[example]]
 name = "chat_client"

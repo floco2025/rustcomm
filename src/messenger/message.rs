@@ -33,9 +33,28 @@ const INITIAL_BODY_CAPACITY: usize = 64;
 ///
 /// All messages must be Send + Debug + Downcast to support multi-threaded
 /// message dispatch and downcasting for type-specific handling.
+///
+/// The optional request-response methods allow messages to participate in
+/// request-response patterns without requiring a separate trait hierarchy.
 pub trait Message: Send + Debug + Downcast {
     /// Returns the unique identifier for this message type.
     fn message_id(&self) -> &str;
+    
+    /// Gets the request ID for request-response messages.
+    /// 
+    /// Returns `None` for regular messages. Override this method for messages
+    /// that participate in request-response communication.
+    fn get_request_id(&self) -> Option<u64> {
+        None
+    }
+    
+    /// Sets the request ID for request-response messages.
+    /// 
+    /// Does nothing for regular messages. Override this method for messages
+    /// that participate in request-response communication.
+    fn set_request_id(&mut self, _id: u64) {
+        // Default: no-op
+    }
 }
 
 impl_downcast!(Message);

@@ -240,6 +240,9 @@ pub(crate) mod error;
 pub(crate) mod messenger;
 pub(crate) mod transport;
 
+#[cfg(feature = "req-resp")]
+pub(crate) mod req_resp;
+
 // These are the intended public API
 pub use error::Error;
 pub use messenger::{
@@ -247,6 +250,10 @@ pub use messenger::{
     MessengerInterface,
 };
 pub use transport::{Transport, TransportEvent, TransportInterface};
+
+// Request-response support (optional feature)
+#[cfg(feature = "req-resp")]
+pub use req_resp::RequestResponse;
 
 // Bincode support (optional feature, enabled by default)
 #[cfg(feature = "bincode")]
@@ -261,6 +268,12 @@ pub mod prelude {
         MessengerEvent, MessengerInterface,
     };
     pub use crate::transport::{Transport, TransportEvent, TransportInterface};
+
+    // Request-response support (optional feature)
+    #[cfg(feature = "req-resp")]
+    pub use crate::impl_req_resp_message;
+    #[cfg(feature = "req-resp")]
+    pub use crate::req_resp::RequestResponse;
 
     // Bincode support (optional feature, enabled by default)
     #[cfg(feature = "bincode")]
