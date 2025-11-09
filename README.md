@@ -6,7 +6,7 @@ A lightweight, high-performance communication library built on
 - **Three-layer architecture:**
   - **Transport:** Low-level API for raw bytes over TCP/TLS
   - **Messenger:** Type-safe serialized messages with any serialization format
-  - **RequestResponse:** Async request-response pattern (optional `req-resp` feature)
+  - **ReqRespMessenger:** Async request-response pattern (optional `req-resp` feature)
 - **Peer-to-peer:** No fixed server/client roles - any peer can listen, connect,
   send, and receive
 - **Easily extensible:** Add custom transports beyond TCP/TLS, such as QUIC
@@ -42,7 +42,7 @@ Built on Messenger - async request-response pattern for RPC-style communication.
 **Choose your layer:**
 - Need raw bytes? Use **Transport**
 - Need typed messages? Use **Messenger**  
-- Need async request-response? Use **RequestResponse**
+- Need async request-response? Use **ReqRespMessenger**
 
 ## Documentation
 
@@ -65,7 +65,7 @@ The repository includes several examples demonstrating each layer:
 - **custom_serialization** - Using custom serialization instead of bincode
 - **chat** - Full-featured chat application with multiple server variants
 
-**RequestResponse Layer (Async RPC):**
+**ReqRespMessenger Layer:**
 - **async** - Request-response pattern with runtime-agnostic async
 
 Run an example:

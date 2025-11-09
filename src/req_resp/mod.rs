@@ -61,15 +61,15 @@ struct PendingRequest {
     sender: oneshot::Sender<Box<dyn Message>>,
 }
 
-/// Request-response client that wraps a Messenger for async RPC-style communication
-pub struct RequestResponse {
+/// Request-response messenger that wraps a Messenger for async RPC-style communication
+pub struct ReqRespMessenger {
     interface: MessengerInterface,
     pending_requests: Arc<Mutex<HashMap<u64, PendingRequest>>>,
     next_request_id: Arc<Mutex<u64>>,
 }
 
-impl RequestResponse {
-    /// Create a new RequestResponse from configuration and message registry
+impl ReqRespMessenger {
+    /// Create a new ReqRespMessenger from configuration and message registry
     ///
     /// This creates an internal [`Messenger`] and starts the event loop in a
     /// background thread. The messenger is owned by the event loop and cannot
@@ -96,7 +96,7 @@ impl RequestResponse {
         })
     }
 
-    /// Create a new RequestResponse with a named configuration namespace
+    /// Create a new ReqRespMessenger with a named configuration namespace
     ///
     /// This creates an internal [`Messenger`] using the named config and starts
     /// the event loop in a background thread. The messenger is owned by the

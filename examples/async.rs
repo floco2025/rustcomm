@@ -1,4 +1,4 @@
-//! Async request-response example using RequestResponse
+//! Async request-response example using ReqRespMessenger
 //!
 //! This example demonstrates rustcomm's built-in async request-response system.
 //! Uses futures::executor - no tokio required!
@@ -9,7 +9,7 @@ use futures::executor::block_on;
 use futures::join;
 use rustcomm::{
     impl_req_resp_message, register_bincode_message, MessageRegistry, Messenger, MessengerEvent,
-    RequestResponse,
+    ReqRespMessenger,
 };
 use std::net::SocketAddr;
 use std::thread;
@@ -79,11 +79,11 @@ fn main() {
     let server_addr = run_server(&config, &registry);
     println!("[Main] Server started at {}", server_addr);
 
-    // Create RequestResponse - creates its own messenger and starts event loop
+    // Create ReqRespMessenger - creates its own messenger and starts event loop
     let req_resp =
-        RequestResponse::new(&config, &registry).expect("Failed to create RequestResponse");
+        ReqRespMessenger::new(&config, &registry).expect("Failed to create ReqRespMessenger");
 
-    // Connect to server using RequestResponse's connect() method
+    // Connect to server using ReqRespMessenger's connect() method
     let (server_id, _) = req_resp.connect(server_addr).expect("Failed to connect");
     println!("[Main] Connected to server with id {}", server_id);
 
