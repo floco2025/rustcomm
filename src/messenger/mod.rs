@@ -130,7 +130,14 @@ impl Messenger {
 // ============================================================================
 
 impl Messenger {
+    // ============================================================================
+    // Connection Management
+    // ============================================================================
+
     /// Starts listening for incoming connections on the specified address.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
     ///
     /// Delegates to [`Transport::listen()`]. See that method for full documentation.
     #[instrument(skip(self, addr))]
@@ -140,24 +147,155 @@ impl Messenger {
 
     /// Initiates a connection to the specified address.
     ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
+    ///
     /// Delegates to [`Transport::connect()`]. See that method for full documentation.
     #[instrument(skip(self, addr))]
     pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
         self.transport.connect(addr)
     }
 
-    /// Gets a MessengerInterface for sending messages from other threads.
-    pub fn get_messenger_interface(&self) -> MessengerInterface {
-        let transport_interface = self.transport.get_transport_interface();
-        MessengerInterface::new(transport_interface, self.registry.clone())
-    }
-
     /// Gets the local socket addresses of all active listeners.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
     ///
     /// Delegates to [`Transport::get_listener_addresses()`]. See that method for full documentation.
     pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
         self.transport.get_listener_addresses()
     }
+
+    /// Closes a connection by its ID.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Delegates to [`Transport::close_connection()`]. Additionally cleans up the
+    /// message receive buffer for this connection.
+    #[instrument(skip(self))]
+    pub fn close_connection(&mut self, id: usize) {
+        // Clean up receive buffer for this connection
+        self.recv_buffers.remove(&id);
+        self.transport.close_connection(id);
+    }
+
+    /// Closes a listener by its ID.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Delegates to [`Transport::close_listener()`]. See that method for full documentation.
+    #[instrument(skip(self))]
+    pub fn close_listener(&mut self, id: usize) {
+        self.transport.close_listener(id);
+    }
+
+    /// Closes all connections and listeners.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Delegates to [`Transport::close_all()`]. Additionally cleans up all
+    /// message receive buffers.
+    #[instrument(skip(self))]
+    pub fn close_all(&mut self) {
+        // Clean up all receive buffers
+        self.recv_buffers.clear();
+        self.transport.close_all()
+    }
+
+    // ============================================================================
+    // Data Operations
+    // ============================================================================
+
+    /// Sends a message to a specific connection.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Ignores non-existent connection ids, because the connection might have
+    /// been closed already internally. Errors are handled asynchronously with
+    /// MessengerEvents.
+    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
+    pub fn send_to(&mut self, to_id: usize, msg: &dyn Message) {
+        let data = serialize_message(msg, &self.registry);
+        debug!(len = data.len(), "Sending message");
+        self.transport.send_to(to_id, data);
+    }
+
+    /// Sends a message to multiple specific connections.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Ignores non-existent connection ids, because the connection might have
+    /// been closed already internally. Errors are handled asynchronously with
+    /// MessengerEvents.
+    #[instrument(skip(self, msg, to_ids), fields(msg_id = msg.message_id()))]
+    pub fn send_to_many(&mut self, to_ids: &[usize], msg: &dyn Message) {
+        let data = serialize_message(msg, &self.registry);
+        debug!(
+            count = to_ids.len(),
+            len = data.len(),
+            "Sending message to many"
+        );
+        self.transport.send_to_many(to_ids, data);
+    }
+
+    /// Broadcasts a message to all connected clients.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Ignores non-existent connection ids, because the connection might have
+    /// been closed already internally. Errors are handled asynchronously with
+    /// MessengerEvents.
+    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
+    pub fn broadcast(&mut self, msg: &dyn Message) {
+        let data = serialize_message(msg, &self.registry);
+        debug!(len = data.len(), "Broadcasting message");
+        self.transport.broadcast(data);
+    }
+
+    /// Broadcasts a message to all connected clients except one.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Ignores non-existent connection ids, because the connection might have
+    /// been closed already internally. Errors are handled asynchronously with
+    /// MessengerEvents.
+    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
+    pub fn broadcast_except(&mut self, msg: &dyn Message, except_id: usize) {
+        let data = serialize_message(msg, &self.registry);
+        debug!(len = data.len(), "Broadcasting message with exception");
+        self.transport.broadcast_except(data, except_id);
+    }
+
+    /// Broadcasts a message to all connected clients except multiple specified
+    /// ones.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Ignores non-existent connection ids, because the connection might have
+    /// been closed already internally. Errors are handled asynchronously with
+    /// MessengerEvents.
+    #[instrument(skip(self, msg, except_ids), fields(msg_id = msg.message_id()))]
+    pub fn broadcast_except_many(&mut self, msg: &dyn Message, except_ids: &[usize]) {
+        let data = serialize_message(msg, &self.registry);
+        debug!(
+            except_count = except_ids.len(),
+            len = data.len(),
+            "Broadcasting message with many exceptions"
+        );
+        self.transport.broadcast_except_many(data, except_ids);
+    }
+
+    // ============================================================================
+    // Event Operations
+    // ============================================================================
 
     /// Blocks until messenger events are available and returns them.
     ///
@@ -254,126 +392,13 @@ impl Messenger {
         Ok(dispatch_events)
     }
 
-    /// Sends a message to a specific connection.
-    ///
-    /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`MessengerInterface`] instead.
-    ///
-    /// Ignores non-existent connection ids, because the connection might have
-    /// been closed already internally. Errors are handled asynchronously with
-    /// MessengerEvents.
-    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
-    pub fn send_to(&mut self, to_id: usize, msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
-        debug!(len = data.len(), "Sending message");
-        self.transport.send_to(to_id, data);
-    }
+    // ============================================================================
+    // Utilities
+    // ============================================================================
 
-    /// Sends a message to multiple specific connections.
-    ///
-    /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`MessengerInterface`] instead.
-    ///
-    /// Ignores non-existent connection ids, because the connection might have
-    /// been closed already internally. Errors are handled asynchronously with
-    /// MessengerEvents.
-    #[instrument(skip(self, msg, to_ids), fields(msg_id = msg.message_id()))]
-    pub fn send_to_many(&mut self, to_ids: &[usize], msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
-        debug!(
-            count = to_ids.len(),
-            len = data.len(),
-            "Sending message to many"
-        );
-        self.transport.send_to_many(to_ids, data);
-    }
-
-    /// Broadcasts a message to all connected clients.
-    ///
-    /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`MessengerInterface`] instead.
-    ///
-    /// Ignores non-existent connection ids, because the connection might have
-    /// been closed already internally. Errors are handled asynchronously with
-    /// MessengerEvents.
-    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
-    pub fn broadcast(&mut self, msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
-        debug!(len = data.len(), "Broadcasting message");
-        self.transport.broadcast(data);
-    }
-
-    /// Broadcasts a message to all connected clients except one.
-    ///
-    /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`MessengerInterface`] instead.
-    ///
-    /// Ignores non-existent connection ids, because the connection might have
-    /// been closed already internally. Errors are handled asynchronously with
-    /// MessengerEvents.
-    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
-    pub fn broadcast_except(&mut self, msg: &dyn Message, except_id: usize) {
-        let data = serialize_message(msg, &self.registry);
-        debug!(len = data.len(), "Broadcasting message with exception");
-        self.transport.broadcast_except(data, except_id);
-    }
-
-    /// Broadcasts a message to all connected clients except multiple specified
-    /// ones.
-    ///
-    /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`MessengerInterface`] instead.
-    ///
-    /// Ignores non-existent connection ids, because the connection might have
-    /// been closed already internally. Errors are handled asynchronously with
-    /// MessengerEvents.
-    #[instrument(skip(self, msg, except_ids), fields(msg_id = msg.message_id()))]
-    pub fn broadcast_except_many(&mut self, msg: &dyn Message, except_ids: &[usize]) {
-        let data = serialize_message(msg, &self.registry);
-        debug!(
-            except_count = except_ids.len(),
-            len = data.len(),
-            "Broadcasting message with many exceptions"
-        );
-        self.transport.broadcast_except_many(data, except_ids);
-    }
-
-    /// Closes a connection by its ID.
-    ///
-    /// Delegates to [`Transport::close_connection()`]. Additionally cleans up the
-    /// message receive buffer for this connection.
-    ///
-    /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`MessengerInterface`] instead.
-    #[instrument(skip(self))]
-    pub fn close_connection(&mut self, id: usize) {
-        // Clean up receive buffer for this connection
-        self.recv_buffers.remove(&id);
-        self.transport.close_connection(id);
-    }
-
-    /// Closes a listener by its ID.
-    ///
-    /// Delegates to [`Transport::close_listener()`]. See that method for full documentation.
-    ///
-    /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`MessengerInterface`] instead.
-    #[instrument(skip(self))]
-    pub fn close_listener(&mut self, id: usize) {
-        self.transport.close_listener(id);
-    }
-
-    /// Closes all connections and listeners.
-    ///
-    /// Delegates to [`Transport::close_all()`]. Additionally cleans up all
-    /// message receive buffers.
-    ///
-    /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`MessengerInterface`] instead.
-    #[instrument(skip(self))]
-    pub fn close_all(&mut self) {
-        // Clean up all receive buffers
-        self.recv_buffers.clear();
-        self.transport.close_all()
+    /// Gets a MessengerInterface for sending messages from other threads.
+    pub fn get_messenger_interface(&self) -> MessengerInterface {
+        let transport_interface = self.transport.get_transport_interface();
+        MessengerInterface::new(transport_interface, self.registry.clone())
     }
 }

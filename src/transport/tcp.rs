@@ -119,28 +119,9 @@ impl TcpTransport {
 // ============================================================================
 
 impl TcpTransport {
-    /// Starts listening for incoming connections on the specified address.
-    #[instrument(skip(self, addr))]
-    pub fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
-        let requested_addr = addr
-            .to_socket_addrs()?
-            .next()
-            .expect("Address resolution returned empty iterator");
-        let mut listener = TcpListener::bind(requested_addr)?;
-
-        let listener_id = self.next_id;
-        let local_addr = listener.local_addr().expect("Failed to get local address");
-        info!(id = listener_id, %local_addr, "Listening for connections");
-        self.poll
-            .registry()
-            .register(&mut listener, Token(listener_id), Interest::READABLE)
-            .expect("Failed to register listener");
-        self.listeners.insert(listener_id, listener);
-
-        self.advance_connection_id();
-
-        Ok((listener_id, local_addr))
-    }
+    // ============================================================================
+    // Connection Management
+    // ============================================================================
 
     /// Initiates a connection to the specified address.
     #[instrument(skip(self, addr))]
@@ -175,6 +156,41 @@ impl TcpTransport {
         self.advance_connection_id();
 
         Ok((connection_id, peer_addr))
+    }
+
+    /// Starts listening for incoming connections on the specified address.
+    #[instrument(skip(self, addr))]
+    pub fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
+        let requested_addr = addr
+            .to_socket_addrs()?
+            .next()
+            .expect("Address resolution returned empty iterator");
+        let mut listener = TcpListener::bind(requested_addr)?;
+
+        let listener_id = self.next_id;
+        let local_addr = listener.local_addr().expect("Failed to get local address");
+        info!(id = listener_id, %local_addr, "Listening for connections");
+        self.poll
+            .registry()
+            .register(&mut listener, Token(listener_id), Interest::READABLE)
+            .expect("Failed to register listener");
+        self.listeners.insert(listener_id, listener);
+
+        self.advance_connection_id();
+
+        Ok((listener_id, local_addr))
+    }
+
+    /// Gets the local socket addresses of all active listeners.
+    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
+        self.listeners
+            .values()
+            .map(|listener| {
+                listener
+                    .local_addr()
+                    .expect("Failed to get listener local address")
+            })
+            .collect()
     }
 
     /// Closes a connection by its ID.
@@ -425,18 +441,6 @@ impl TcpTransport {
             waker: self.waker.clone(),
         }
     }
-
-    /// Gets the local socket addresses of all active listeners.
-    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
-        self.listeners
-            .values()
-            .map(|listener| {
-                listener
-                    .local_addr()
-                    .expect("Failed to get listener local address")
-            })
-            .collect()
-    }
 }
 
 // ============================================================================
@@ -449,18 +453,27 @@ impl TcpTransport {
 
         for request in send_requests {
             match request {
-                SendRequest::Listen { addr, response } => {
-                    let result = self.listen(addr);
-                    if let Err(e) = response.send(result) {
-                        error!("Failed to send listen response: {:?}", e);
-                    }
-                }
                 SendRequest::Connect { addr, response } => {
                     let result = self.connect(addr);
                     if let Err(e) = response.send(result) {
                         error!("Failed to send connect response: {:?}", e);
                     }
                 }
+                SendRequest::Listen { addr, response } => {
+                    let result = self.listen(addr);
+                    if let Err(e) = response.send(result) {
+                        error!("Failed to send listen response: {:?}", e);
+                    }
+                }
+                SendRequest::GetListenerAddresses { response } => {
+                    let addresses = self.get_listener_addresses();
+                    if let Err(e) = response.send(addresses) {
+                        error!("Failed to send listener addresses response: {:?}", e);
+                    }
+                }
+                SendRequest::CloseConnection { id } => self.close_connection(id),
+                SendRequest::CloseListener { id } => self.close_listener(id),
+                SendRequest::CloseAll => self.close_all(),
                 SendRequest::SendTo { id, data } => self.send_to(id, data),
                 SendRequest::SendToMany { ids, data } => self.send_to_many(&ids, data),
                 SendRequest::Broadcast { data } => self.broadcast(data),
@@ -469,15 +482,6 @@ impl TcpTransport {
                 }
                 SendRequest::BroadcastExceptMany { data, except_ids } => {
                     self.broadcast_except_many(data, &except_ids)
-                }
-                SendRequest::CloseConnection { id } => self.close_connection(id),
-                SendRequest::CloseListener { id } => self.close_listener(id),
-                SendRequest::CloseAll => self.close_all(),
-                SendRequest::GetListenerAddresses { response } => {
-                    let addresses = self.get_listener_addresses();
-                    if let Err(e) = response.send(addresses) {
-                        error!("Failed to send listener addresses response: {:?}", e);
-                    }
                 }
             }
         }
@@ -808,12 +812,16 @@ impl TcpTransport {
 // layer for dynamic dispatch.
 
 impl TransportImpl for TcpTransport {
+    fn connect_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error> {
+        self.connect(addr)
+    }
+
     fn listen_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error> {
         self.listen(addr)
     }
 
-    fn connect_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error> {
-        self.connect(addr)
+    fn get_listener_addresses(&self) -> Vec<SocketAddr> {
+        self.get_listener_addresses()
     }
 
     fn close_connection(&mut self, id: usize) {
@@ -854,9 +862,5 @@ impl TransportImpl for TcpTransport {
 
     fn get_transport_interface(&self) -> TransportInterface {
         self.get_transport_interface()
-    }
-
-    fn get_listener_addresses(&self) -> Vec<SocketAddr> {
-        self.get_listener_addresses()
     }
 }

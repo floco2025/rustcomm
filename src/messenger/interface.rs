@@ -25,6 +25,10 @@ impl MessengerInterface {
         }
     }
 
+    // ============================================================================
+    // Connection Management
+    // ============================================================================
+
     /// Opens a new listener on the specified address.
     ///
     /// This is thread-safe and blocks until the listener is created.
@@ -54,6 +58,60 @@ impl MessengerInterface {
     ) -> Result<(usize, SocketAddr), Error> {
         self.transport_interface.connect(addr)
     }
+
+    /// Gets the local socket addresses of all active listeners.
+    ///
+    /// This is thread-safe and blocks until the addresses are retrieved.
+    /// The Transport's event loop will process the request and return the addresses.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// [`super::Messenger::get_listener_addresses()`] directly for better performance.
+    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
+        self.transport_interface.get_listener_addresses()
+    }
+
+    /// Queues a connection to be closed.
+    ///
+    /// This is thread-safe and non-blocking. The connection will be closed when
+    /// the Transport's event loop processes the request.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// [`super::Messenger::close_connection()`] directly for better performance.
+    ///
+    /// **Note:** This does not trigger a `MessengerEvent::Disconnected` event.
+    pub fn close_connection(&self, id: usize) {
+        self.transport_interface.close_connection(id);
+    }
+
+    /// Queues a listener to be closed.
+    ///
+    /// This is thread-safe and non-blocking. The listener will be closed when
+    /// the Transport's event loop processes the request.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// [`super::Messenger::close_listener()`] directly for better performance.
+    pub fn close_listener(&self, id: usize) {
+        self.transport_interface.close_listener(id);
+    }
+
+    /// Queues all connections and listeners to be closed.
+    ///
+    /// This is thread-safe and non-blocking. The listener will be closed when
+    /// the Transport's event loop processes the request.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// [`super::Messenger::close_all()`] directly for better performance.
+    ///
+    /// **Note:** This does not trigger `MessengerEvent::Disconnected` events.
+    /// However, it will trigger a `MessengerEvent::Inactive` event if no new
+    /// connections or listeners are created before calling [`Messenger::fetch_events()`](super::Messenger::fetch_events).
+    pub fn close_all(&self) {
+        self.transport_interface.close_all();
+    }
+
+    // ============================================================================
+    // Data Operations
+    // ============================================================================
 
     /// Queues a message to be sent to a specific connection.
     ///
@@ -115,55 +173,5 @@ impl MessengerInterface {
         let data = serialize_message(msg, &self.registry);
         self.transport_interface
             .broadcast_except_many(data, except_ids);
-    }
-
-    /// Queues a connection to be closed.
-    ///
-    /// This is thread-safe and non-blocking. The connection will be closed when
-    /// the Transport's event loop processes the request.
-    ///
-    /// **Note:** If thread-safety is not required, call
-    /// [`super::Messenger::close_connection()`] directly for better performance.
-    ///
-    /// **Note:** This does not trigger a `MessengerEvent::Disconnected` event.
-    pub fn close_connection(&self, id: usize) {
-        self.transport_interface.close_connection(id);
-    }
-
-    /// Queues a listener to be closed.
-    ///
-    /// This is thread-safe and non-blocking. The listener will be closed when
-    /// the Transport's event loop processes the request.
-    ///
-    /// **Note:** If thread-safety is not required, call
-    /// [`super::Messenger::close_listener()`] directly for better performance.
-    pub fn close_listener(&self, id: usize) {
-        self.transport_interface.close_listener(id);
-    }
-
-    /// Queues all connections and listeners to be closed.
-    ///
-    /// This is thread-safe and non-blocking. The listener will be closed when
-    /// the Transport's event loop processes the request.
-    ///
-    /// **Note:** If thread-safety is not required, call
-    /// [`super::Messenger::close_all()`] directly for better performance.
-    ///
-    /// **Note:** This does not trigger `MessengerEvent::Disconnected` events.
-    /// However, it will trigger a `MessengerEvent::Inactive` event if no new
-    /// connections or listeners are created before calling [`Messenger::fetch_events()`](super::Messenger::fetch_events).
-    pub fn close_all(&self) {
-        self.transport_interface.close_all();
-    }
-
-    /// Gets the local socket addresses of all active listeners.
-    ///
-    /// This is thread-safe and blocks until the addresses are retrieved.
-    /// The Transport's event loop will process the request and return the addresses.
-    ///
-    /// **Note:** If thread-safety is not required, call
-    /// [`super::Messenger::get_listener_addresses()`] directly for better performance.
-    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
-        self.transport_interface.get_listener_addresses()
     }
 }

@@ -4,7 +4,9 @@
 //! patterns, allowing async communication while the underlying Messenger
 //! remains synchronous.
 
-use crate::{Message, Messenger, MessengerEvent, MessengerInterface, MessageRegistry, RequestError};
+use crate::{
+    Message, MessageRegistry, Messenger, MessengerEvent, MessengerInterface, RequestError,
+};
 use futures::channel::oneshot;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -68,13 +70,13 @@ pub struct RequestResponse {
 
 impl RequestResponse {
     /// Create a new RequestResponse from configuration and message registry
-    /// 
+    ///
     /// This creates an internal [`Messenger`] and starts the event loop in a
     /// background thread. The messenger is owned by the event loop and cannot
     /// be accessed directly.
     pub fn new(config: &config::Config, registry: &MessageRegistry) -> Result<Self, crate::Error> {
         let messenger = Messenger::new(config, registry)?;
-        
+
         // Get interface before moving messenger
         let interface = messenger.get_messenger_interface();
 
@@ -93,9 +95,9 @@ impl RequestResponse {
             next_request_id: Arc::new(Mutex::new(0)),
         })
     }
-    
+
     /// Create a new RequestResponse with a named configuration namespace
-    /// 
+    ///
     /// This creates an internal [`Messenger`] using the named config and starts
     /// the event loop in a background thread. The messenger is owned by the
     /// event loop and cannot be accessed directly.
@@ -105,7 +107,7 @@ impl RequestResponse {
         name: &str,
     ) -> Result<Self, crate::Error> {
         let messenger = Messenger::new_named(config, registry, name)?;
-        
+
         // Get interface before moving messenger
         let interface = messenger.get_messenger_interface();
 
@@ -263,8 +265,19 @@ impl RequestResponse {
     }
 
     // ============================================================================
-    // Delegate methods to MessengerInterface
+    // Connection Management
     // ============================================================================
+
+    /// Connect to a remote address.
+    ///
+    /// This is thread-safe and blocks until the connection is established.
+    /// Delegates to the underlying MessengerInterface.
+    pub fn connect<A: std::net::ToSocketAddrs>(
+        &self,
+        addr: A,
+    ) -> Result<(usize, std::net::SocketAddr), crate::Error> {
+        self.interface.connect(addr)
+    }
 
     /// Listen for incoming connections on the specified address.
     ///
@@ -277,15 +290,12 @@ impl RequestResponse {
         self.interface.listen(addr)
     }
 
-    /// Connect to a remote address.
+    /// Gets the local socket addresses of all active listeners.
     ///
-    /// This is thread-safe and blocks until the connection is established.
+    /// This is thread-safe and blocks until the addresses are retrieved.
     /// Delegates to the underlying MessengerInterface.
-    pub fn connect<A: std::net::ToSocketAddrs>(
-        &self,
-        addr: A,
-    ) -> Result<(usize, std::net::SocketAddr), crate::Error> {
-        self.interface.connect(addr)
+    pub fn get_listener_addresses(&self) -> Vec<std::net::SocketAddr> {
+        self.interface.get_listener_addresses()
     }
 
     /// Close a connection by its ID.
@@ -301,13 +311,5 @@ impl RequestResponse {
     /// Close all connections and listeners.
     pub fn close_all(&self) {
         self.interface.close_all();
-    }
-
-    /// Gets the local socket addresses of all active listeners.
-    ///
-    /// This is thread-safe and blocks until the addresses are retrieved.
-    /// Delegates to the underlying MessengerInterface.
-    pub fn get_listener_addresses(&self) -> Vec<std::net::SocketAddr> {
-        self.interface.get_listener_addresses()
     }
 }

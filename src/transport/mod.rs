@@ -26,19 +26,22 @@ use std::net::{SocketAddr, ToSocketAddrs};
 //
 // Note: This trait is internal. Users should use the `Transport` struct instead.
 trait TransportImpl: Send {
-    // ========================================================================
+    // ============================================================================
     // Connection Management
-    // ========================================================================
+    // ============================================================================
+
+    // Initiates a connection to the specified address. We cannot use
+    // ToSocketAddrs like with Transport::connect, because this would make this
+    // function generic, and thereby not dyn-compatible.
+    fn connect_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error>;
 
     // Starts listening for incoming connections on the specified address. We
     // cannot use ToSocketAddrs like with Transport::listen, because this would
     // make this function generic, and thereby not dyn-compatible.
     fn listen_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error>;
 
-    // Initiates a connection to the specified address. We cannot use
-    // ToSocketAddrs like with Transport::connect, because this would make this
-    // function generic, and thereby not dyn-compatible.
-    fn connect_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error>;
+    // Gets the local socket addresses of all active listeners.
+    fn get_listener_addresses(&self) -> Vec<SocketAddr>;
 
     // Closes a connection by its ID.
     fn close_connection(&mut self, id: usize);
@@ -49,9 +52,9 @@ trait TransportImpl: Send {
     // Closes all connections and listeners.
     fn close_all(&mut self);
 
-    // ========================================================================
+    // ============================================================================
     // Data Operations
-    // ========================================================================
+    // ============================================================================
 
     // Sends data to a specific connection.
     fn send_to(&mut self, id: usize, buf: Vec<u8>);
@@ -68,9 +71,9 @@ trait TransportImpl: Send {
     // Broadcasts data to all connected clients except multiple specified ones.
     fn broadcast_except_many(&mut self, buf: Vec<u8>, except_ids: &[usize]);
 
-    // ========================================================================
-    // Event Loop
-    // ========================================================================
+    // ============================================================================
+    // Event Operations
+    // ============================================================================
 
     // Blocks until transport events are available and returns them.
     //
@@ -78,15 +81,12 @@ trait TransportImpl: Send {
     // the returned events.
     fn fetch_events(&mut self) -> Result<Vec<TransportEvent>, Error>;
 
-    // ========================================================================
+    // ============================================================================
     // Utilities
-    // ========================================================================
+    // ============================================================================
 
     // Gets a thread-safe interface for sending data from other threads.
     fn get_transport_interface(&self) -> TransportInterface;
-
-    // Gets the local socket addresses of all active listeners.
-    fn get_listener_addresses(&self) -> Vec<SocketAddr>;
 }
 
 /// Dynamic transport that wraps either TCP or TLS transport based on configuration.
@@ -195,22 +195,49 @@ impl Transport {
                 let valid = vec!["tcp".to_string(), "tls".to_string()];
                 #[cfg(not(feature = "tls"))]
                 let valid = vec!["tcp".to_string()];
-                
+
                 return Err(Error::InvalidTransportType {
                     got: transport_type,
                     valid,
-                })
+                });
             }
         };
 
         Ok(Self { inner })
     }
 
-    // ========================================================================
+    // ============================================================================
     // Connection Management
-    // ========================================================================
+    // ============================================================================
+
+    /// Initiates a connection to the specified address.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
+    ///
+    /// The connection is established asynchronously. You will receive a
+    /// [`TransportEvent::Connected`] event when the connection is fully
+    /// established, or [`TransportEvent::ConnectionFailed`] if it fails.
+    ///
+    /// Returns a tuple of (connection_id, socket_addr) where:
+    /// - `connection_id`: Use this ID to send data to this connection.
+    /// - `socket_addr`: The peer address that was connected to (useful when you
+    ///   pass multiple addresses or use DNS names and want to know which
+    ///   address was actually used).
+    pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
+        let socket_addr = addr.to_socket_addrs()?.next().ok_or_else(|| {
+            Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Could not resolve address",
+            ))
+        })?;
+        self.inner.connect_impl(socket_addr)
+    }
 
     /// Starts listening for incoming connections on the specified address.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
     ///
     /// Returns a tuple of (listener_id, socket_addr) where:
     /// - `listener_id`: Can be used with
@@ -231,25 +258,12 @@ impl Transport {
         self.inner.listen_impl(socket_addr)
     }
 
-    /// Initiates a connection to the specified address.
+    /// Gets the local socket addresses of all active listeners.
     ///
-    /// The connection is established asynchronously. You will receive a
-    /// [`TransportEvent::Connected`] event when the connection is fully
-    /// established, or [`TransportEvent::ConnectionFailed`] if it fails.
-    ///
-    /// Returns a tuple of (connection_id, socket_addr) where:
-    /// - `connection_id`: Use this ID to send data to this connection.
-    /// - `socket_addr`: The peer address that was connected to (useful when you
-    ///   pass multiple addresses or use DNS names and want to know which
-    ///   address was actually used).
-    pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
-        let socket_addr = addr.to_socket_addrs()?.next().ok_or_else(|| {
-            Error::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Could not resolve address",
-            ))
-        })?;
-        self.inner.connect_impl(socket_addr)
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
+    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
+        self.inner.get_listener_addresses()
     }
 
     /// Closes a connection by its ID.
@@ -290,9 +304,9 @@ impl Transport {
         self.inner.close_all()
     }
 
-    // ========================================================================
+    // ============================================================================
     // Data Operations
-    // ========================================================================
+    // ============================================================================
 
     /// Sends data to a specific connection.
     ///
@@ -354,9 +368,9 @@ impl Transport {
         self.inner.broadcast_except_many(buf, except_ids)
     }
 
-    // ========================================================================
+    // ============================================================================
     // Event Operations
-    // ========================================================================
+    // ============================================================================
 
     /// Blocks until transport events are available and returns them.
     ///
@@ -369,17 +383,12 @@ impl Transport {
         self.inner.fetch_events()
     }
 
-    // ========================================================================
+    // ============================================================================
     // Utilities
-    // ========================================================================
+    // ============================================================================
 
     /// Gets a thread-safe interface for sending data from other threads.
     pub fn get_transport_interface(&self) -> TransportInterface {
         self.inner.get_transport_interface()
-    }
-
-    /// Gets the local socket addresses of all active listeners.
-    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
-        self.inner.get_listener_addresses()
     }
 }

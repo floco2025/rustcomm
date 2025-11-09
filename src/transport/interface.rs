@@ -9,14 +9,29 @@ use std::sync::{
 // Internal request type for cross-thread communication
 #[derive(Debug)]
 pub(crate) enum SendRequest {
-    Listen {
-        addr: SocketAddr,
-        response: Sender<Result<(usize, SocketAddr), Error>>,
-    },
+    // Connection Management
+    
     Connect {
         addr: SocketAddr,
         response: Sender<Result<(usize, SocketAddr), Error>>,
     },
+    Listen {
+        addr: SocketAddr,
+        response: Sender<Result<(usize, SocketAddr), Error>>,
+    },
+    GetListenerAddresses {
+        response: Sender<Vec<SocketAddr>>,
+    },
+    CloseConnection {
+        id: usize,
+    },
+    CloseListener {
+        id: usize,
+    },
+    CloseAll,
+
+    // Data Operations
+
     SendTo {
         id: usize,
         data: Vec<u8>,
@@ -36,16 +51,6 @@ pub(crate) enum SendRequest {
         data: Vec<u8>,
         except_ids: Vec<usize>,
     },
-    CloseConnection {
-        id: usize,
-    },
-    CloseListener {
-        id: usize,
-    },
-    CloseAll,
-    GetListenerAddresses {
-        response: Sender<Vec<SocketAddr>>,
-    },
 }
 
 /// Thread-safe interface for sending data through a Transport.
@@ -62,6 +67,33 @@ pub struct TransportInterface {
 }
 
 impl TransportInterface {
+    // ============================================================================
+    // Connection Management
+    // ============================================================================
+
+    /// Initiates a connection to the specified address.
+    ///
+    /// This is thread-safe and blocks until the connection is initiated or an
+    /// error occurs. The Transport's event loop will process the request and
+    /// return the connection ID and peer address.
+    ///
+    /// **Note:** If thread-safety is not required, call `Transport::connect()`
+    /// directly for better performance.
+    pub fn connect<A: ToSocketAddrs>(&self, addr: A) -> Result<(usize, SocketAddr), Error> {
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .expect("Address resolution returned empty iterator");
+
+        let (tx, rx) = channel();
+        self.sender
+            .send(SendRequest::Connect { addr, response: tx })
+            .expect("Failed to send request to event loop");
+        self.waker.wake().expect("Failed to wake event loop");
+        rx.recv()
+            .expect("Failed to receive response from event loop")
+    }
+
     /// Starts listening for incoming connections on the specified address.
     ///
     /// This is thread-safe and blocks until the listener is created or an error
@@ -85,23 +117,17 @@ impl TransportInterface {
             .expect("Failed to receive response from event loop")
     }
 
-    /// Initiates a connection to the specified address.
+    /// Gets the local socket addresses of all active listeners.
     ///
-    /// This is thread-safe and blocks until the connection is initiated or an
-    /// error occurs. The Transport's event loop will process the request and
-    /// return the connection ID and peer address.
+    /// This is thread-safe and blocks until the addresses are retrieved.
+    /// The Transport's event loop will process the request and return the addresses.
     ///
-    /// **Note:** If thread-safety is not required, call `Transport::connect()`
-    /// directly for better performance.
-    pub fn connect<A: ToSocketAddrs>(&self, addr: A) -> Result<(usize, SocketAddr), Error> {
-        let addr = addr
-            .to_socket_addrs()?
-            .next()
-            .expect("Address resolution returned empty iterator");
-
+    /// **Note:** If thread-safety is not required, call
+    /// `Transport::get_listener_addresses()` directly for better performance.
+    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
         let (tx, rx) = channel();
         self.sender
-            .send(SendRequest::Connect { addr, response: tx })
+            .send(SendRequest::GetListenerAddresses { response: tx })
             .expect("Failed to send request to event loop");
         self.waker.wake().expect("Failed to wake event loop");
         rx.recv()
@@ -140,22 +166,26 @@ impl TransportInterface {
 
     /// Queues all connections and listeners to be closed.
     ///
-    /// This is thread-safe and non-blocking. The listener will be closed when
-    /// the Transport's event loop processes the request.
+    /// This is thread-safe and non-blocking. All connections and listeners will
+    /// be closed when the Transport's event loop processes the request.
     ///
-    /// **Note:** If thread-safety is not required, call
-    /// `Transport::close_all()` directly for better performance.
+    /// **Note:** If thread-safety is not required, call `Transport::close_all()`
+    /// directly for better performance.
     ///
     /// **Note:** This does not trigger `TransportEvent::Disconnected` events.
     /// However, it will trigger a `TransportEvent::Inactive` event if no new
     /// connections or listeners are created before calling
-    /// [`Transport::fetch_events()`](super::Transport::fetch_events).
+    /// `Transport::fetch_events()`.
     pub fn close_all(&self) {
         self.sender
             .send(SendRequest::CloseAll)
             .expect("Failed to send request to event loop");
         self.waker.wake().expect("Failed to wake event loop");
     }
+
+    // ============================================================================
+    // Data Operations
+    // ============================================================================
 
     /// Queues a message to be sent to a specific connection.
     ///
@@ -226,23 +256,5 @@ impl TransportInterface {
             .send(SendRequest::BroadcastExceptMany { data, except_ids })
             .expect("Failed to send request to event loop");
         self.waker.wake().expect("Failed to wake event loop");
-    }
-
-    /// Gets the local socket addresses of all active listeners.
-    ///
-    /// This is thread-safe and blocks until the addresses are retrieved.
-    /// The Transport's event loop will process the request and return the addresses.
-    ///
-    /// **Note:** If thread-safety is not required, call
-    /// `Transport::get_listener_addresses()` directly for better performance.
-    pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
-        let (tx, rx) = channel();
-        self.sender
-            .send(SendRequest::GetListenerAddresses { response: tx })
-            .expect("Failed to send request to event loop");
-        self.waker.wake().expect("Failed to wake event loop");
-
-        rx.recv()
-            .expect("Failed to receive response from event loop")
     }
 }
