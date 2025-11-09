@@ -9,14 +9,14 @@ mod interface;
 mod message;
 mod registry;
 
-pub use interface::MessengerInterface;
-pub use message::{deserialize_message, serialize_message, Message};
-pub use registry::{MessageDeserializer, MessageRegistry, MessageSerializer};
-
 use crate::error::Error;
 use crate::transport::Transport;
-use config::Config;
+pub use interface::MessengerInterface;
+pub use message::Message;
+use message::{deserialize_message, serialize_message};
+pub use registry::{MessageDeserializer, MessageRegistry, MessageSerializer};
 
+use config::Config;
 use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 use tracing::{debug, error, instrument, warn};

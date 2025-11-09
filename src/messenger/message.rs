@@ -82,8 +82,7 @@ macro_rules! impl_message {
 /// - body_size: 4 bytes (u32 LE) - length of everything after the header
 /// - msg_id: variable length string (includes length prefix)
 /// - msg_body: variable length data (format depends on registered serializer)
-#[doc(hidden)]
-pub fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -> Vec<u8> {
+pub(super) fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -> Vec<u8> {
     let msg_id = msg.message_id();
     trace!(msg_id, "Serializing message");
 
@@ -130,8 +129,7 @@ pub fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -> Vec<u
 /// - `Ok(Some((msg, bytes_read)))` - Successfully deserialized a message
 /// - `Ok(None)` - Not enough data available (normal streaming condition)
 /// - `Err(_)` - Invalid data (bad magic bytes, malformed data, unknown message ID)
-#[doc(hidden)]
-pub fn deserialize_message(buf: &[u8], registry: &MessageRegistry) -> DeserializeResult {
+pub(super) fn deserialize_message(buf: &[u8], registry: &MessageRegistry) -> DeserializeResult {
     // Need at least header bytes to proceed
     if buf.len() < HEADER_SIZE {
         return Ok(None);

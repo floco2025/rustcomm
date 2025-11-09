@@ -266,8 +266,3 @@ pub mod prelude {
     #[cfg(feature = "bincode")]
     pub use crate::register_bincode_message;
 }
-
-// Re-export functions that are only needed for testing
-// Hidden from documentation to discourage use in production code
-#[doc(hidden)]
-pub use messenger::{deserialize_message, serialize_message};
