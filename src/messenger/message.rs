@@ -8,9 +8,9 @@ use tracing::{error, trace, warn};
 // Type Aliases
 // ============================================================================
 
-// Result type for message deserialization, containing the message and bytes
+// Result type for message deserialization, containing the context, message and bytes
 // consumed.
-type DeserializeResult = Result<Option<(Box<dyn Message>, usize)>, Error>;
+type DeserializeResult<C> = Result<Option<(C, Box<dyn Message>, usize)>, Error>;
 
 // ============================================================================
 // Constants
@@ -130,15 +130,20 @@ macro_rules! impl_message {
 // Message Serialization and Deserialization
 // ============================================================================
 
-/// Serializes a message to its wire format.
+/// Serializes a message with context to its wire format.
 ///
-/// Wire format: \[MAGIC\]\[VERSION\]\[body_size\]\[msg_id\]\[msg_body\]
+/// Wire format: \[MAGIC\]\[VERSION\]\[body_size\]\[context\]\[msg_id\]\[msg_body\]
 /// - MAGIC: 4 bytes ("mpg!") - helps detect protocol mismatches
 /// - VERSION: 2 bytes (major, minor) - protocol version
 /// - body_size: 4 bytes (u32 LE) - length of everything after the header
+/// - context: variable length (serialized context data)
 /// - msg_id: variable length string (includes length prefix)
 /// - msg_body: variable length data (format depends on registered serializer)
-pub(super) fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -> Vec<u8> {
+pub(super) fn serialize_message<C: Context>(
+    msg: &dyn Message,
+    ctx: &C,
+    registry: &MessageRegistry,
+) -> Vec<u8> {
     let msg_id = msg.message_id();
     trace!(msg_id, "Serializing message");
 
@@ -158,6 +163,9 @@ pub(super) fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -
     let body_size_pos = buf.len();
     buf.extend(&[0u8; 4]);
 
+    // Serialize context first
+    ctx.serialize_into(&mut buf);
+
     // Serialize message ID with length prefix (manual format)
     let msg_id_bytes = msg_id.as_bytes();
     buf.extend(&(msg_id_bytes.len() as u32).to_le_bytes());
@@ -173,7 +181,7 @@ pub(super) fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -
     buf
 }
 
-/// Deserializes a message from a buffer.
+/// Deserializes a message with context from a buffer.
 ///
 /// This is an internal function. Use `Messenger::fetch_events` instead.
 ///
@@ -182,10 +190,13 @@ pub(super) fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -
 /// rather than erroring, allowing the caller to wait for more bytes to arrive.
 ///
 /// Returns:
-/// - `Ok(Some((msg, bytes_read)))` - Successfully deserialized a message
+/// - `Ok(Some((ctx, msg, bytes_read)))` - Successfully deserialized context and message
 /// - `Ok(None)` - Not enough data available (normal streaming condition)
 /// - `Err(_)` - Invalid data (bad magic bytes, malformed data, unknown message ID)
-pub(super) fn deserialize_message(buf: &[u8], registry: &MessageRegistry) -> DeserializeResult {
+pub(super) fn deserialize_message<C: Context>(
+    buf: &[u8],
+    registry: &MessageRegistry,
+) -> DeserializeResult<C> {
     // Need at least header bytes to proceed
     if buf.len() < HEADER_SIZE {
         return Ok(None);
@@ -241,25 +252,32 @@ pub(super) fn deserialize_message(buf: &[u8], registry: &MessageRegistry) -> Des
     // Extract the body (everything after the header)
     let body = &buf[HEADER_SIZE..msg_size];
 
+    // Deserialize context first
+    let (ctx, ctx_bytes) = C::deserialize(body)?;
+
+    // The remaining body starts after the context
+    let remaining_body = &body[ctx_bytes..];
+
     // Read message ID length prefix
-    let msg_id_len_bytes: [u8; 4] = match body.get(0..4).and_then(|s| s.try_into().ok()) {
+    let msg_id_len_bytes: [u8; 4] = match remaining_body.get(0..4).and_then(|s| s.try_into().ok())
+    {
         Some(bytes) => bytes,
         None => return Ok(None),
     };
     let msg_id_len = u32::from_le_bytes(msg_id_len_bytes) as usize;
 
-    if body.len() < 4 + msg_id_len {
+    if remaining_body.len() < 4 + msg_id_len {
         return Ok(None);
     }
 
     // Extract and validate message ID as UTF-8 string
-    let msg_id = std::str::from_utf8(&body[4..4 + msg_id_len]).map_err(|e| {
+    let msg_id = std::str::from_utf8(&remaining_body[4..4 + msg_id_len]).map_err(|e| {
         warn!(%e, "Invalid UTF-8 in message ID");
         Error::MalformedData(format!("Invalid UTF-8 in message ID: {}", e))
     })?;
 
     // The remaining bytes are the message-specific body data
-    let msg_data = &body[4 + msg_id_len..];
+    let msg_data = &remaining_body[4 + msg_id_len..];
 
     // Look up the codec pair for this message type
     let codec_pair = registry.get(msg_id).ok_or_else(|| {
@@ -276,5 +294,5 @@ pub(super) fn deserialize_message(buf: &[u8], registry: &MessageRegistry) -> Des
         e
     })?;
 
-    Ok(Some((msg, msg_size)))
+    Ok(Some((ctx, msg, msg_size)))
 }

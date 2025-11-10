@@ -136,7 +136,7 @@ impl<C: Context> MessengerInterface<C> {
     /// **Note:** If thread-safety is not required, call
     /// [`super::Messenger::send_to_with_context()`] directly for better performance.
     pub fn send_to_with_context(&self, id: usize, msg: &dyn Message, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         self.transport_interface.send_to(id, data);
     }
 
@@ -159,7 +159,7 @@ impl<C: Context> MessengerInterface<C> {
     /// **Note:** If thread-safety is not required, call
     /// [`super::Messenger::send_to_many_with_context()`] directly for better performance.
     pub fn send_to_many_with_context(&self, ids: Vec<usize>, msg: &dyn Message, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         self.transport_interface.send_to_many(ids, data);
     }
 
@@ -182,7 +182,7 @@ impl<C: Context> MessengerInterface<C> {
     /// **Note:** If thread-safety is not required, call [`super::Messenger::broadcast_with_context()`]
     /// directly for better performance.
     pub fn broadcast_with_context(&self, msg: &dyn Message, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         self.transport_interface.broadcast(data);
     }
 
@@ -206,7 +206,7 @@ impl<C: Context> MessengerInterface<C> {
     /// **Note:** If thread-safety is not required, call
     /// [`super::Messenger::broadcast_except_with_context()`] directly for better performance.
     pub fn broadcast_except_with_context(&self, msg: &dyn Message, except_id: usize, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         self.transport_interface.broadcast_except(data, except_id);
     }
 
@@ -232,7 +232,7 @@ impl<C: Context> MessengerInterface<C> {
     /// **Note:** If thread-safety is not required, call
     /// [`super::Messenger::broadcast_except_many_with_context()`] directly for better performance.
     pub fn broadcast_except_many_with_context(&self, msg: &dyn Message, except_ids: Vec<usize>, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         self.transport_interface
             .broadcast_except_many(data, except_ids);
     }

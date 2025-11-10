@@ -243,7 +243,7 @@ impl<C: Context> Messenger<C> {
     /// MessengerEvents.
     #[instrument(skip(self, msg, ctx), fields(msg_id = msg.message_id()))]
     pub fn send_to_with_context(&mut self, to_id: usize, msg: &dyn Message, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         debug!(len = data.len(), "Sending message");
         self.transport.send_to(to_id, data);
     }
@@ -270,7 +270,7 @@ impl<C: Context> Messenger<C> {
     /// MessengerEvents.
     #[instrument(skip(self, msg, to_ids, ctx), fields(msg_id = msg.message_id()))]
     pub fn send_to_many_with_context(&mut self, to_ids: &[usize], msg: &dyn Message, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         debug!(
             count = to_ids.len(),
             len = data.len(),
@@ -301,7 +301,7 @@ impl<C: Context> Messenger<C> {
     /// MessengerEvents.
     #[instrument(skip(self, msg, ctx), fields(msg_id = msg.message_id()))]
     pub fn broadcast_with_context(&mut self, msg: &dyn Message, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         debug!(len = data.len(), "Broadcasting message");
         self.transport.broadcast(data);
     }
@@ -329,7 +329,7 @@ impl<C: Context> Messenger<C> {
     /// MessengerEvents.
     #[instrument(skip(self, msg, ctx), fields(msg_id = msg.message_id()))]
     pub fn broadcast_except_with_context(&mut self, msg: &dyn Message, except_id: usize, ctx: &C) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         debug!(len = data.len(), "Broadcasting message with exception");
         self.transport.broadcast_except(data, except_id);
     }
@@ -364,7 +364,7 @@ impl<C: Context> Messenger<C> {
         except_ids: &[usize],
         ctx: &C,
     ) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(msg, ctx, &self.registry);
         debug!(
             except_count = except_ids.len(),
             len = data.len(),
@@ -433,19 +433,15 @@ impl<C: Context> Messenger<C> {
                         let mut had_error = false;
 
                         while recv_pos < recv_buf.len() {
-                            match deserialize_message(&recv_buf[recv_pos..], &self.registry) {
-                                Ok(Some((msg, bytes_read))) => {
+                            match deserialize_message::<C>(&recv_buf[recv_pos..], &self.registry) {
+                                Ok(Some((ctx, msg, bytes_read))) => {
                                     debug!(
                                         id,
                                         msg_id = msg.message_id(),
                                         len = bytes_read,
                                         "Received message"
                                     );
-                                    dispatch_events.push(MessengerEvent::Message {
-                                        id,
-                                        msg,
-                                        ctx: C::default(),
-                                    });
+                                    dispatch_events.push(MessengerEvent::Message { id, msg, ctx });
                                     recv_pos += bytes_read;
                                 }
                                 Ok(None) => {

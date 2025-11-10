@@ -93,7 +93,7 @@
 //!             MessengerEvent::Connected { id } => {
 //!                 println!("Client {} connected", id);
 //!             }
-//!             MessengerEvent::Message { id, msg } => {
+//!             MessengerEvent::Message { id, msg, .. } => {
 //!                 if let Some(chat) = msg.downcast_ref::<ChatMessage>() {
 //!                     println!("{}: {}", chat.user, chat.text);
 //!                 }
