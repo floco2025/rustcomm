@@ -1,5 +1,5 @@
 use super::registry::MessageRegistry;
-use super::{serialize_message, Message, MessageContext};
+use super::{serialize_message, Context, EmptyContext, Message};
 use crate::transport::TransportInterface;
 use crate::Error;
 use std::net::SocketAddr;
@@ -12,16 +12,21 @@ use std::net::SocketAddr;
 ///
 /// Multiple threads can hold cloned instances to send messages concurrently.
 #[derive(Clone)]
-pub struct MessengerInterface {
+pub struct MessengerInterface<C: Context = EmptyContext> {
     transport_interface: TransportInterface,
     registry: MessageRegistry,
+    _phantom: std::marker::PhantomData<C>,
 }
 
-impl MessengerInterface {
-    pub(super) fn new(transport_interface: TransportInterface, registry: MessageRegistry) -> Self {
+impl<C: Context> MessengerInterface<C> {
+    pub(super) fn new(transport_interface: TransportInterface, registry: MessageRegistry) -> Self
+    where
+        C: Default,
+    {
         Self {
             transport_interface,
             registry,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -115,62 +120,119 @@ impl MessengerInterface {
 
     /// Queues a message to be sent to a specific connection.
     ///
+    /// Calls [`send_to_with_context()`](Self::send_to_with_context) with an empty context.
+    pub fn send_to(&self, id: usize, msg: &dyn Message)
+    where
+        C: Default,
+    {
+        self.send_to_with_context(id, msg, &C::default());
+    }
+
+    /// Queues a message with context to be sent to a specific connection.
+    ///
     /// This is thread-safe and non-blocking. The message will be serialized and
     /// sent when the Transport's event loop processes it.
     ///
     /// **Note:** If thread-safety is not required, call
-    /// [`super::Messenger::send_to()`] directly for better performance.
-    pub fn send_to(&self, id: usize, msg: &dyn Message) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    /// [`super::Messenger::send_to_with_context()`] directly for better performance.
+    pub fn send_to_with_context(&self, id: usize, msg: &dyn Message, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         self.transport_interface.send_to(id, data);
     }
 
     /// Queues a message to be sent to multiple specific connections.
     ///
+    /// Calls [`send_to_many_with_context()`](Self::send_to_many_with_context)
+    /// with an empty context.
+    pub fn send_to_many(&self, ids: Vec<usize>, msg: &dyn Message)
+    where
+        C: Default,
+    {
+        self.send_to_many_with_context(ids, msg, &C::default());
+    }
+
+    /// Queues a message with context to be sent to multiple specific connections.
+    ///
     /// This is thread-safe and non-blocking. The message will be serialized and
     /// sent when the Transport's event loop processes it.
     ///
     /// **Note:** If thread-safety is not required, call
-    /// [`super::Messenger::send_to_many()`] directly for better performance.
-    pub fn send_to_many(&self, ids: Vec<usize>, msg: &dyn Message) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    /// [`super::Messenger::send_to_many_with_context()`] directly for better performance.
+    pub fn send_to_many_with_context(&self, ids: Vec<usize>, msg: &dyn Message, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         self.transport_interface.send_to_many(ids, data);
     }
 
     /// Queues a message to be broadcast to all connected clients.
     ///
+    /// Calls [`broadcast_with_context()`](Self::broadcast_with_context) with an
+    /// empty context.
+    pub fn broadcast(&self, msg: &dyn Message)
+    where
+        C: Default,
+    {
+        self.broadcast_with_context(msg, &C::default());
+    }
+
+    /// Queues a message with context to be broadcast to all connected clients.
+    ///
     /// This is thread-safe and non-blocking. The message will be serialized and
     /// sent when the Transport's event loop processes it.
     ///
-    /// **Note:** If thread-safety is not required, call [`super::Messenger::broadcast()`]
+    /// **Note:** If thread-safety is not required, call [`super::Messenger::broadcast_with_context()`]
     /// directly for better performance.
-    pub fn broadcast(&self, msg: &dyn Message) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    pub fn broadcast_with_context(&self, msg: &dyn Message, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         self.transport_interface.broadcast(data);
     }
 
     /// Queues a message to be broadcast to all connected clients except one.
     ///
+    /// Calls
+    /// [`broadcast_except_with_context()`](Self::broadcast_except_with_context)
+    /// with an empty context.
+    pub fn broadcast_except(&self, msg: &dyn Message, except_id: usize)
+    where
+        C: Default,
+    {
+        self.broadcast_except_with_context(msg, except_id, &C::default());
+    }
+
+    /// Queues a message with context to be broadcast to all connected clients except one.
+    ///
     /// This is thread-safe and non-blocking. The message will be serialized and
     /// sent when the Transport's event loop processes it.
     ///
     /// **Note:** If thread-safety is not required, call
-    /// [`super::Messenger::broadcast_except()`] directly for better performance.
-    pub fn broadcast_except(&self, msg: &dyn Message, except_id: usize) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    /// [`super::Messenger::broadcast_except_with_context()`] directly for better performance.
+    pub fn broadcast_except_with_context(&self, msg: &dyn Message, except_id: usize, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         self.transport_interface.broadcast_except(data, except_id);
     }
 
     /// Queues a message to be broadcast to all connected clients except
     /// multiple specified ones.
     ///
+    /// Calls
+    /// [`broadcast_except_many_with_context()`](Self::broadcast_except_many_with_context)
+    /// with an empty context.
+    pub fn broadcast_except_many(&self, msg: &dyn Message, except_ids: Vec<usize>)
+    where
+        C: Default,
+    {
+        self.broadcast_except_many_with_context(msg, except_ids, &C::default());
+    }
+
+    /// Queues a message with context to be broadcast to all connected clients except
+    /// multiple specified ones.
+    ///
     /// This is thread-safe and non-blocking. The message will be serialized and
     /// sent when the Transport's event loop processes it.
     ///
     /// **Note:** If thread-safety is not required, call
-    /// [`super::Messenger::broadcast_except_many()`] directly for better performance.
-    pub fn broadcast_except_many(&self, msg: &dyn Message, except_ids: Vec<usize>) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    /// [`super::Messenger::broadcast_except_many_with_context()`] directly for better performance.
+    pub fn broadcast_except_many_with_context(&self, msg: &dyn Message, except_ids: Vec<usize>, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         self.transport_interface
             .broadcast_except_many(data, except_ids);
     }

@@ -222,7 +222,7 @@ fn run_server(config: &Config, registry: &MessageRegistry) -> SocketAddr {
                     MessengerEvent::Connected { id } => {
                         println!("[Server] Client {} connected", id);
                     }
-                    MessengerEvent::Message { id, msg } => {
+                    MessengerEvent::Message { id, msg, .. } => {
                         // Identify and log the message type
                         if msg.downcast_ref::<BincodeMessage>().is_some() {
                             println!("[Server] Received Bincode message from {}", id);

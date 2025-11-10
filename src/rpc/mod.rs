@@ -2,8 +2,8 @@
 //!
 //! ⚠️ **WORK IN PROGRESS - DO NOT USE** ⚠️
 //!
-//! This module is under active development and the API will change significantly.
-//! Do not use this until it if finished.
+//! This module is under active development and the API will change
+//! significantly. Do not use this until it if finished.
 
 use crate::{
     Message, MessageRegistry, Messenger, MessengerEvent, MessengerInterface, RequestError,
@@ -20,10 +20,10 @@ use tracing::{debug, error, instrument};
 
 /// Implements the [`Message`] trait for an RPC message type.
 ///
-/// This macro provides the full [`Message`] trait implementation including
-/// RPC support via [`get_request_id()`](Message::get_request_id)
-/// and [`set_request_id()`](Message::set_request_id). The message type must
-/// have a field that stores the request ID.
+/// This macro provides the full [`Message`] trait implementation including RPC
+/// support via [`get_request_id()`](Message::get_request_id) and
+/// [`set_request_id()`](Message::set_request_id). The message type must have a
+/// field that stores the request ID.
 ///
 /// # Example
 ///
@@ -164,7 +164,7 @@ impl RpcMessenger {
                             }
                         });
                     }
-                    MessengerEvent::Message { msg, id } => {
+                    MessengerEvent::Message { msg, id, .. } => {
                         // Check if this message has a request ID (is a
                         // response)
                         if let Some(request_id) = msg.get_request_id() {

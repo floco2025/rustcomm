@@ -370,7 +370,7 @@ impl Client {
                 eprintln!("Lost connection to server");
                 Some(ExitCode::FAILURE)
             }
-            MessengerEvent::Message { id, msg } => {
+            MessengerEvent::Message { id, msg, .. } => {
                 assert_eq!(id, server_id);
                 self.handle_message(id, msg, messenger_intf);
                 None

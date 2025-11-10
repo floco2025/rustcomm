@@ -246,8 +246,8 @@ pub mod rpc;
 // These are the intended public API
 pub use error::Error;
 pub use messenger::{
-    Message, MessageDeserializer, MessageRegistry, MessageSerializer, Messenger, MessengerEvent,
-    MessengerInterface,
+    Context, EmptyContext, Message, MessageDeserializer, MessageRegistry, MessageSerializer,
+    Messenger, MessengerEvent, MessengerInterface,
 };
 pub use transport::{Transport, TransportEvent, TransportInterface};
 
@@ -266,8 +266,8 @@ pub mod prelude {
     pub use crate::error::Error;
     pub use crate::impl_message;
     pub use crate::messenger::{
-        Message, MessageDeserializer, MessageRegistry, MessageSerializer, Messenger,
-        MessengerEvent, MessengerInterface,
+        Context, EmptyContext, Message, MessageDeserializer, MessageRegistry, MessageSerializer,
+        Messenger, MessengerEvent, MessengerInterface,
     };
     pub use crate::transport::{Transport, TransportEvent, TransportInterface};
 

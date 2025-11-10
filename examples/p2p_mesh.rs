@@ -144,7 +144,7 @@ fn run_peer(name: &str, mut messenger: Messenger, connect_addrs: Vec<SocketAddr>
                         }
                     }
                 }
-                MessengerEvent::Message { id: _, msg } => {
+                MessengerEvent::Message { id: _, msg, .. } => {
                     if let Some(peer_msg) = msg.downcast_ref::<PeerMessage>() {
                         println!(
                             "[{name}] Received from {}: '{}'",

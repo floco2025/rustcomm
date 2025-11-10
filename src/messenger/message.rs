@@ -60,20 +60,41 @@ pub trait Message: Send + Debug + Downcast {
 impl_downcast!(Message);
 
 // ============================================================================
-// MessageContext
+// Context Trait
 // ============================================================================
 
-/// A concrete wrapper struct that holds a single message.
+/// Trait for message context that can be serialized alongside messages.
 ///
-/// `MessageContext` provides a concrete type that can wrap any message
-/// implementing the `Message` trait. This allows for additional metadata
-/// or behavior to be added around messages without changing the message
-/// types themselves.
-#[derive(Debug)]
-pub struct MessageContext<'a> {
-    pub message: &'a dyn Message,
+/// Context provides a way to add metadata or wrapper information around
+/// messages without modifying the message types themselves.
+pub trait Context: Debug {
+    /// Serializes the context into the provided buffer.
+    fn serialize_into(&self, buf: &mut Vec<u8>);
+    
+    /// Deserializes the context from a buffer slice.
+    /// 
+    /// Returns the deserialized context and number of bytes consumed.
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), Error>
+    where
+        Self: Sized;
 }
 
+/// An empty context implementation that performs no serialization.
+///
+/// This is useful as a default context when no additional metadata is needed.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EmptyContext;
+
+impl Context for EmptyContext {
+    fn serialize_into(&self, _buf: &mut Vec<u8>) {
+        // No-op: nothing to serialize
+    }
+    
+    fn deserialize(_buf: &[u8]) -> Result<(Self, usize), Error> {
+        // No-op: return empty context with 0 bytes consumed
+        Ok((EmptyContext, 0))
+    }
+}
 
 // ============================================================================
 // impl_message! Macro
@@ -117,8 +138,7 @@ macro_rules! impl_message {
 /// - body_size: 4 bytes (u32 LE) - length of everything after the header
 /// - msg_id: variable length string (includes length prefix)
 /// - msg_body: variable length data (format depends on registered serializer)
-pub(super) fn serialize_message(ctx: &MessageContext, registry: &MessageRegistry) -> Vec<u8> {
-    let msg = ctx.message;
+pub(super) fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -> Vec<u8> {
     let msg_id = msg.message_id();
     trace!(msg_id, "Serializing message");
 

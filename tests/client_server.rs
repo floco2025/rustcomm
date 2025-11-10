@@ -129,7 +129,7 @@ where
         MessengerEvent::Disconnected { .. } => {
             panic!("[Client] Unexpected Disconnected event")
         }
-        MessengerEvent::Message { id, msg } => {
+        MessengerEvent::Message { id, msg, .. } => {
             assert_eq!(id, server_id);
             if let Some(return_message) = msg.downcast_ref::<T>() {
                 assert_eq!(return_message, &message);
@@ -524,7 +524,7 @@ fn run_server(messenger: Messenger) -> SocketAddr {
                     MessengerEvent::Disconnected { .. } => {
                         break 'outer;
                     }
-                    MessengerEvent::Message { id, msg } => {
+                    MessengerEvent::Message { id, msg, .. } => {
                         messenger_intf.send_to(id, &*msg);
                     }
                 }

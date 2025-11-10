@@ -120,7 +120,7 @@ fn dispatch_event(event: MessengerEvent, messenger_intf: &MessengerInterface) ->
             println!("[Server] Thread {:?} terminating", thread_id);
             return true; // We are done
         }
-        MessengerEvent::Message { id, msg } => {
+        MessengerEvent::Message { id, msg, .. } => {
             if let Some(msg) = msg.downcast_ref::<ProcessData>() {
                 let thread_id = thread::current().id();
                 println!(

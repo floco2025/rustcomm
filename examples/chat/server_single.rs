@@ -219,7 +219,7 @@ impl Server {
             MessengerEvent::Connected { id } => self.handle_connect(id, messenger),
             MessengerEvent::ConnectionFailed { .. } => panic!("Unexpected ConnectionFailed event"),
             MessengerEvent::Disconnected { id } => self.handle_disconnect(id, messenger),
-            MessengerEvent::Message { id, msg } => self.handle_message(id, msg, messenger),
+            MessengerEvent::Message { id, msg, .. } => self.handle_message(id, msg, messenger),
         }
     }
 }

@@ -12,8 +12,8 @@ mod registry;
 use crate::error::Error;
 use crate::transport::Transport;
 pub use interface::MessengerInterface;
-pub use message::{Message, MessageContext};
 use message::{deserialize_message, serialize_message};
+pub use message::{Context, EmptyContext, Message};
 pub use registry::{MessageDeserializer, MessageRegistry, MessageSerializer};
 
 use config::Config;
@@ -28,11 +28,12 @@ use tracing::{debug, error, instrument, warn};
 ///
 /// The transport type (TCP or TLS) is automatically selected based on
 /// configuration.
-pub struct Messenger {
+pub struct Messenger<C: Context = EmptyContext> {
     transport: Transport,
     registry: MessageRegistry,
     /// Per-connection receive buffers for handling partial messages
     recv_buffers: HashMap<usize, Vec<u8>>,
+    _phantom: std::marker::PhantomData<C>,
 }
 
 /// Events produced by [`Messenger::fetch_events()`].
@@ -41,7 +42,7 @@ pub struct Messenger {
 /// messenger. Handle each event to manage connection state and process incoming
 /// messages.
 #[derive(Debug)]
-pub enum MessengerEvent {
+pub enum MessengerEvent<C: Context = EmptyContext> {
     /// The messenger has no listeners or connections.
     Inactive,
     /// Connection established.
@@ -51,7 +52,11 @@ pub enum MessengerEvent {
     /// Connection closed. Clean up state associated with this `id`.
     Disconnected { id: usize },
     /// Received and deserialized message. Use `downcast_ref::<T>()` to access.
-    Message { id: usize, msg: Box<dyn Message> },
+    Message {
+        id: usize,
+        msg: Box<dyn Message>,
+        ctx: C,
+    },
 }
 
 // ============================================================================
@@ -79,7 +84,8 @@ impl Messenger {
     /// 2. `{key}` (e.g., `transport_type`)
     /// 3. Hard-coded default
     ///
-    /// This allows different messenger instances to have different configurations.
+    /// This allows different messenger instances to have different
+    /// configurations.
     ///
     /// # Configuration Keys
     ///
@@ -106,7 +112,8 @@ impl Messenger {
         Self::new_with_transport(transport, config, registry, name)
     }
 
-    /// Creates a new Messenger instance with a custom [`Transport`] implementation.
+    /// Creates a new Messenger instance with a custom [`Transport`]
+    /// implementation.
     ///
     /// This is only useful if you've implemented a custom transport type. For
     /// standard TCP/TLS transports, use [`new()`](Self::new) or
@@ -121,6 +128,7 @@ impl Messenger {
             transport,
             registry: registry.clone(),
             recv_buffers: HashMap::new(),
+            _phantom: std::marker::PhantomData,
         })
     }
 }
@@ -129,7 +137,7 @@ impl Messenger {
 // Public Methods
 // ============================================================================
 
-impl Messenger {
+impl<C: Context> Messenger<C> {
     // ============================================================================
     // Connection Management
     // ============================================================================
@@ -137,9 +145,10 @@ impl Messenger {
     /// Starts listening for incoming connections on the specified address.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`TransportInterface`] instead.
+    /// [`MessengerInterface`] instead.
     ///
-    /// Delegates to [`Transport::listen()`]. See that method for full documentation.
+    /// Delegates to [`Transport::listen()`]. See that method for full
+    /// documentation.
     #[instrument(skip(self, addr))]
     pub fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
         self.transport.listen(addr)
@@ -148,9 +157,10 @@ impl Messenger {
     /// Initiates a connection to the specified address.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`TransportInterface`] instead.
+    /// [`MessengerInterface`] instead.
     ///
-    /// Delegates to [`Transport::connect()`]. See that method for full documentation.
+    /// Delegates to [`Transport::connect()`]. See that method for full
+    /// documentation.
     #[instrument(skip(self, addr))]
     pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
         self.transport.connect(addr)
@@ -159,9 +169,10 @@ impl Messenger {
     /// Gets the local socket addresses of all active listeners.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
-    /// [`TransportInterface`] instead.
+    /// [`MessengerInterface`] instead.
     ///
-    /// Delegates to [`Transport::get_listener_addresses()`]. See that method for full documentation.
+    /// Delegates to [`Transport::get_listener_addresses()`]. See that method
+    /// for full documentation.
     pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
         self.transport.get_listener_addresses()
     }
@@ -171,8 +182,8 @@ impl Messenger {
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
     ///
-    /// Delegates to [`Transport::close_connection()`]. Additionally cleans up the
-    /// message receive buffer for this connection.
+    /// Delegates to [`Transport::close_connection()`]. Additionally cleans up
+    /// the message receive buffer for this connection.
     #[instrument(skip(self))]
     pub fn close_connection(&mut self, id: usize) {
         // Clean up receive buffer for this connection
@@ -185,7 +196,8 @@ impl Messenger {
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
     ///
-    /// Delegates to [`Transport::close_listener()`]. See that method for full documentation.
+    /// Delegates to [`Transport::close_listener()`]. See that method for full
+    /// documentation.
     #[instrument(skip(self))]
     pub fn close_listener(&mut self, id: usize) {
         self.transport.close_listener(id);
@@ -211,30 +223,54 @@ impl Messenger {
 
     /// Sends a message to a specific connection.
     ///
+    /// Calls [`send_to_with_context()`](Self::send_to_with_context) with an
+    /// empty context.
+    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
+    pub fn send_to(&mut self, to_id: usize, msg: &dyn Message)
+    where
+        C: Default,
+    {
+        self.send_to_with_context(to_id, msg, &C::default());
+    }
+
+    /// Sends a message with context to a specific connection.
+    ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
     /// MessengerEvents.
-    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
-    pub fn send_to(&mut self, to_id: usize, msg: &dyn Message) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    #[instrument(skip(self, msg, ctx), fields(msg_id = msg.message_id()))]
+    pub fn send_to_with_context(&mut self, to_id: usize, msg: &dyn Message, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         debug!(len = data.len(), "Sending message");
         self.transport.send_to(to_id, data);
     }
 
     /// Sends a message to multiple specific connections.
     ///
+    /// Calls [`send_to_many_with_context()`](Self::send_to_many_with_context)
+    /// with an empty context.
+    #[instrument(skip(self, msg, to_ids), fields(msg_id = msg.message_id()))]
+    pub fn send_to_many(&mut self, to_ids: &[usize], msg: &dyn Message)
+    where
+        C: Default,
+    {
+        self.send_to_many_with_context(to_ids, msg, &C::default());
+    }
+
+    /// Sends a message with context to multiple specific connections.
+    ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
     /// MessengerEvents.
-    #[instrument(skip(self, msg, to_ids), fields(msg_id = msg.message_id()))]
-    pub fn send_to_many(&mut self, to_ids: &[usize], msg: &dyn Message) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    #[instrument(skip(self, msg, to_ids, ctx), fields(msg_id = msg.message_id()))]
+    pub fn send_to_many_with_context(&mut self, to_ids: &[usize], msg: &dyn Message, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         debug!(
             count = to_ids.len(),
             len = data.len(),
@@ -245,30 +281,55 @@ impl Messenger {
 
     /// Broadcasts a message to all connected clients.
     ///
+    /// Calls [`broadcast_with_context()`](Self::broadcast_with_context) with an
+    /// empty context.
+    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
+    pub fn broadcast(&mut self, msg: &dyn Message)
+    where
+        C: Default,
+    {
+        self.broadcast_with_context(msg, &C::default());
+    }
+
+    /// Broadcasts a message with context to all connected clients.
+    ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
     /// MessengerEvents.
-    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
-    pub fn broadcast(&mut self, msg: &dyn Message) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    #[instrument(skip(self, msg, ctx), fields(msg_id = msg.message_id()))]
+    pub fn broadcast_with_context(&mut self, msg: &dyn Message, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         debug!(len = data.len(), "Broadcasting message");
         self.transport.broadcast(data);
     }
 
     /// Broadcasts a message to all connected clients except one.
     ///
+    /// Calls
+    /// [`broadcast_except_with_context()`](Self::broadcast_except_with_context)
+    /// with an empty context.
+    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
+    pub fn broadcast_except(&mut self, msg: &dyn Message, except_id: usize)
+    where
+        C: Default,
+    {
+        self.broadcast_except_with_context(msg, except_id, &C::default());
+    }
+
+    /// Broadcasts a message with context to all connected clients except one.
+    ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
     /// MessengerEvents.
-    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
-    pub fn broadcast_except(&mut self, msg: &dyn Message, except_id: usize) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    #[instrument(skip(self, msg, ctx), fields(msg_id = msg.message_id()))]
+    pub fn broadcast_except_with_context(&mut self, msg: &dyn Message, except_id: usize, ctx: &C) {
+        let data = serialize_message(msg, &self.registry);
         debug!(len = data.len(), "Broadcasting message with exception");
         self.transport.broadcast_except(data, except_id);
     }
@@ -276,15 +337,34 @@ impl Messenger {
     /// Broadcasts a message to all connected clients except multiple specified
     /// ones.
     ///
+    /// Calls
+    /// [`broadcast_except_many_with_context()`](Self::broadcast_except_many_with_context)
+    /// with an empty context.
+    #[instrument(skip(self, msg, except_ids), fields(msg_id = msg.message_id()))]
+    pub fn broadcast_except_many(&mut self, msg: &dyn Message, except_ids: &[usize])
+    where
+        C: Default,
+    {
+        self.broadcast_except_many_with_context(msg, except_ids, &C::default());
+    }
+
+    /// Broadcasts a message with context to all connected clients except
+    /// multiple specified ones.
+    ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`MessengerInterface`] instead.
     ///
     /// Ignores non-existent connection ids, because the connection might have
     /// been closed already internally. Errors are handled asynchronously with
     /// MessengerEvents.
-    #[instrument(skip(self, msg, except_ids), fields(msg_id = msg.message_id()))]
-    pub fn broadcast_except_many(&mut self, msg: &dyn Message, except_ids: &[usize]) {
-        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
+    #[instrument(skip(self, msg, except_ids, ctx), fields(msg_id = msg.message_id()))]
+    pub fn broadcast_except_many_with_context(
+        &mut self,
+        msg: &dyn Message,
+        except_ids: &[usize],
+        ctx: &C,
+    ) {
+        let data = serialize_message(msg, &self.registry);
         debug!(
             except_count = except_ids.len(),
             len = data.len(),
@@ -308,7 +388,10 @@ impl Messenger {
     /// **Note:** This method delegates to [`Transport::fetch_events()`] and
     /// adds message deserialization on top of the raw transport events.
     #[instrument(skip(self))]
-    pub fn fetch_events(&mut self) -> Result<Vec<MessengerEvent>, Error> {
+    pub fn fetch_events(&mut self) -> Result<Vec<MessengerEvent<C>>, Error>
+    where
+        C: Default,
+    {
         let mut dispatch_events = Vec::new();
 
         while dispatch_events.is_empty() {
@@ -358,7 +441,11 @@ impl Messenger {
                                         len = bytes_read,
                                         "Received message"
                                     );
-                                    dispatch_events.push(MessengerEvent::Message { id, msg });
+                                    dispatch_events.push(MessengerEvent::Message {
+                                        id,
+                                        msg,
+                                        ctx: C::default(),
+                                    });
                                     recv_pos += bytes_read;
                                 }
                                 Ok(None) => {
@@ -397,7 +484,10 @@ impl Messenger {
     // ============================================================================
 
     /// Gets a MessengerInterface for sending messages from other threads.
-    pub fn get_messenger_interface(&self) -> MessengerInterface {
+    pub fn get_messenger_interface(&self) -> MessengerInterface<C>
+    where
+        C: Default,
+    {
         let transport_interface = self.transport.get_transport_interface();
         MessengerInterface::new(transport_interface, self.registry.clone())
     }

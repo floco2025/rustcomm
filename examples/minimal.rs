@@ -48,7 +48,7 @@ fn run_server(config: &Config, registry: &MessageRegistry) -> SocketAddr {
             let events = messenger.fetch_events().expect("Failed to fetch events");
             for event in events {
                 match event {
-                    MessengerEvent::Message { id, msg } => {
+                    MessengerEvent::Message { id, msg, .. } => {
                         // Echo back the message
                         messenger.send_to(id, &*msg);
                     }
