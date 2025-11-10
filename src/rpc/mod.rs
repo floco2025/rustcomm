@@ -10,6 +10,7 @@ use crate::{
 };
 use futures::channel::oneshot;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tracing::{debug, error, instrument};
@@ -70,7 +71,7 @@ struct PendingRequest {
 pub struct RpcMessenger {
     interface: MessengerInterface<RpcContext>,
     pending_requests: Arc<Mutex<HashMap<u64, PendingRequest>>>,
-    next_request_id: Arc<Mutex<u64>>,
+    next_request_id: AtomicU64,
 }
 
 impl RpcMessenger {
@@ -98,7 +99,7 @@ impl RpcMessenger {
         Ok(Self {
             interface,
             pending_requests,
-            next_request_id: Arc::new(Mutex::new(0)),
+            next_request_id: AtomicU64::new(0),
         })
     }
 
@@ -130,7 +131,7 @@ impl RpcMessenger {
         Ok(Self {
             interface,
             pending_requests,
-            next_request_id: Arc::new(Mutex::new(0)),
+            next_request_id: AtomicU64::new(0),
         })
     }
 
@@ -210,12 +211,7 @@ impl RpcMessenger {
         request: Box<dyn Message>,
     ) -> Result<Resp, RequestError> {
         // Generate unique request ID
-        let request_id = {
-            let mut id = self.next_request_id.lock().unwrap();
-            let current = *id;
-            *id += 1;
-            current
-        };
+        let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
 
         debug!("Sending request {} to peer {}", request_id, peer_id);
 
