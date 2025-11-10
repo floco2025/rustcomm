@@ -12,7 +12,7 @@ mod registry;
 use crate::error::Error;
 use crate::transport::Transport;
 pub use interface::MessengerInterface;
-pub use message::Message;
+pub use message::{Message, MessageContext};
 use message::{deserialize_message, serialize_message};
 pub use registry::{MessageDeserializer, MessageRegistry, MessageSerializer};
 
@@ -219,7 +219,7 @@ impl Messenger {
     /// MessengerEvents.
     #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
     pub fn send_to(&mut self, to_id: usize, msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         debug!(len = data.len(), "Sending message");
         self.transport.send_to(to_id, data);
     }
@@ -234,7 +234,7 @@ impl Messenger {
     /// MessengerEvents.
     #[instrument(skip(self, msg, to_ids), fields(msg_id = msg.message_id()))]
     pub fn send_to_many(&mut self, to_ids: &[usize], msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         debug!(
             count = to_ids.len(),
             len = data.len(),
@@ -253,7 +253,7 @@ impl Messenger {
     /// MessengerEvents.
     #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
     pub fn broadcast(&mut self, msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         debug!(len = data.len(), "Broadcasting message");
         self.transport.broadcast(data);
     }
@@ -268,7 +268,7 @@ impl Messenger {
     /// MessengerEvents.
     #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
     pub fn broadcast_except(&mut self, msg: &dyn Message, except_id: usize) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         debug!(len = data.len(), "Broadcasting message with exception");
         self.transport.broadcast_except(data, except_id);
     }
@@ -284,7 +284,7 @@ impl Messenger {
     /// MessengerEvents.
     #[instrument(skip(self, msg, except_ids), fields(msg_id = msg.message_id()))]
     pub fn broadcast_except_many(&mut self, msg: &dyn Message, except_ids: &[usize]) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         debug!(
             except_count = except_ids.len(),
             len = data.len(),

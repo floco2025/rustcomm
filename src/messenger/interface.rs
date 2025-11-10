@@ -1,5 +1,5 @@
 use super::registry::MessageRegistry;
-use super::{serialize_message, Message};
+use super::{serialize_message, Message, MessageContext};
 use crate::transport::TransportInterface;
 use crate::Error;
 use std::net::SocketAddr;
@@ -121,7 +121,7 @@ impl MessengerInterface {
     /// **Note:** If thread-safety is not required, call
     /// [`super::Messenger::send_to()`] directly for better performance.
     pub fn send_to(&self, id: usize, msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         self.transport_interface.send_to(id, data);
     }
 
@@ -133,7 +133,7 @@ impl MessengerInterface {
     /// **Note:** If thread-safety is not required, call
     /// [`super::Messenger::send_to_many()`] directly for better performance.
     pub fn send_to_many(&self, ids: Vec<usize>, msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         self.transport_interface.send_to_many(ids, data);
     }
 
@@ -145,7 +145,7 @@ impl MessengerInterface {
     /// **Note:** If thread-safety is not required, call [`super::Messenger::broadcast()`]
     /// directly for better performance.
     pub fn broadcast(&self, msg: &dyn Message) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         self.transport_interface.broadcast(data);
     }
 
@@ -157,7 +157,7 @@ impl MessengerInterface {
     /// **Note:** If thread-safety is not required, call
     /// [`super::Messenger::broadcast_except()`] directly for better performance.
     pub fn broadcast_except(&self, msg: &dyn Message, except_id: usize) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         self.transport_interface.broadcast_except(data, except_id);
     }
 
@@ -170,7 +170,7 @@ impl MessengerInterface {
     /// **Note:** If thread-safety is not required, call
     /// [`super::Messenger::broadcast_except_many()`] directly for better performance.
     pub fn broadcast_except_many(&self, msg: &dyn Message, except_ids: Vec<usize>) {
-        let data = serialize_message(msg, &self.registry);
+        let data = serialize_message(&MessageContext { message: msg }, &self.registry);
         self.transport_interface
             .broadcast_except_many(data, except_ids);
     }

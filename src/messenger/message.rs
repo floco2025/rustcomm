@@ -60,6 +60,22 @@ pub trait Message: Send + Debug + Downcast {
 impl_downcast!(Message);
 
 // ============================================================================
+// MessageContext
+// ============================================================================
+
+/// A concrete wrapper struct that holds a single message.
+///
+/// `MessageContext` provides a concrete type that can wrap any message
+/// implementing the `Message` trait. This allows for additional metadata
+/// or behavior to be added around messages without changing the message
+/// types themselves.
+#[derive(Debug)]
+pub struct MessageContext<'a> {
+    pub message: &'a dyn Message,
+}
+
+
+// ============================================================================
 // impl_message! Macro
 // ============================================================================
 
@@ -101,7 +117,8 @@ macro_rules! impl_message {
 /// - body_size: 4 bytes (u32 LE) - length of everything after the header
 /// - msg_id: variable length string (includes length prefix)
 /// - msg_body: variable length data (format depends on registered serializer)
-pub(super) fn serialize_message(msg: &dyn Message, registry: &MessageRegistry) -> Vec<u8> {
+pub(super) fn serialize_message(ctx: &MessageContext, registry: &MessageRegistry) -> Vec<u8> {
+    let msg = ctx.message;
     let msg_id = msg.message_id();
     trace!(msg_id, "Serializing message");
 
