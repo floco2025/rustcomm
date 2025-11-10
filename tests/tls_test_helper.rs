@@ -50,10 +50,15 @@ fn create_temp_cert_files() -> (NamedTempFile, NamedTempFile, NamedTempFile) {
     // For testing, CA cert is the same as server cert (self-signed)
     ca_cert_file.write_all(cert_pem.as_bytes()).unwrap();
 
-    // Flush to ensure files are written before use
+    // Flush and sync to ensure files are fully written before use
     cert_file.flush().unwrap();
     key_file.flush().unwrap();
     ca_cert_file.flush().unwrap();
+    
+    // Sync to disk to ensure data is persisted (important for macOS)
+    cert_file.as_file().sync_all().unwrap();
+    key_file.as_file().sync_all().unwrap();
+    ca_cert_file.as_file().sync_all().unwrap();
 
     (cert_file, key_file, ca_cert_file)
 }
