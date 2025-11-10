@@ -6,7 +6,7 @@
 //! significantly. Do not use this until it if finished.
 
 use crate::{
-    Message, MessageRegistry, Messenger, MessengerEvent, MessengerInterface, RequestError,
+    Context, Message, MessageRegistry, Messenger, MessengerEvent, MessengerInterface, RequestError,
 };
 use futures::channel::oneshot;
 use std::collections::HashMap;
@@ -15,46 +15,50 @@ use std::thread;
 use tracing::{debug, error, instrument};
 
 // ============================================================================
-// impl_rpc_message! Macro
+// RpcContext
 // ============================================================================
 
-/// Implements the [`Message`] trait for an RPC message type.
-///
-/// This macro provides the full [`Message`] trait implementation including RPC
-/// support via [`get_request_id()`](Message::get_request_id) and
-/// [`set_request_id()`](Message::set_request_id). The message type must have a
-/// field that stores the request ID.
-///
-/// # Example
-///
-/// ```no_run
-/// use rustcomm::impl_rpc_message;
-///
-/// #[derive(Debug)]
-/// struct Request {
-///     request_id: u64,
-///     data: String,
-/// }
-/// impl_rpc_message!(Request, request_id);
-/// ```
-#[macro_export]
-macro_rules! impl_rpc_message {
-    ($type:ty, $id_field:ident) => {
-        impl $crate::Message for $type {
-            fn message_id(&self) -> &str {
-                stringify!($type)
-            }
-
-            fn get_request_id(&self) -> Option<u64> {
-                Some(self.$id_field)
-            }
-
-            fn set_request_id(&mut self, id: u64) {
-                self.$id_field = id;
-            }
-        }
-    };
+/// Context for RPC messages containing request/response tracking information.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RpcContext {
+    /// The request ID for matching requests with responses.
+    pub request_id: u64,
 }
+
+impl RpcContext {
+    /// Creates a new RpcContext with the given request ID.
+    pub fn new(request_id: u64) -> Self {
+        Self { request_id }
+    }
+}
+
+impl Context for RpcContext {
+    fn serialize_into(&self, buf: &mut Vec<u8>) {
+        buf.extend(&self.request_id.to_le_bytes());
+    }
+
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), crate::Error>
+    where
+        Self: Sized,
+    {
+        if buf.len() < 8 {
+            return Err(crate::Error::MalformedData(
+                "RpcContext requires 8 bytes for request_id".to_string(),
+            ));
+        }
+
+        let request_id_bytes: [u8; 8] = buf[0..8]
+            .try_into()
+            .map_err(|_| crate::Error::MalformedData("Invalid request ID".to_string()))?;
+        let request_id = u64::from_le_bytes(request_id_bytes);
+
+        Ok((Self { request_id }, 8))
+    }
+}
+
+// ============================================================================
+// Pending Request Tracking
+// ============================================================================
 
 /// Pending request information
 struct PendingRequest {
@@ -64,7 +68,7 @@ struct PendingRequest {
 
 /// RPC messenger that wraps a Messenger for async RPC-style communication
 pub struct RpcMessenger {
-    interface: MessengerInterface,
+    interface: MessengerInterface<RpcContext>,
     pending_requests: Arc<Mutex<HashMap<u64, PendingRequest>>>,
     next_request_id: Arc<Mutex<u64>>,
 }
@@ -76,7 +80,8 @@ impl RpcMessenger {
     /// background thread. The messenger is owned by the event loop and cannot
     /// be accessed directly.
     pub fn new(config: &config::Config, registry: &MessageRegistry) -> Result<Self, crate::Error> {
-        let messenger = Messenger::new(config, registry)?;
+        let transport = crate::transport::Transport::new(config)?;
+        let messenger = Messenger::<RpcContext>::new_named_with_context(transport, config, registry, "")?;
 
         // Get interface before moving messenger
         let interface = messenger.get_messenger_interface();
@@ -107,7 +112,8 @@ impl RpcMessenger {
         registry: &MessageRegistry,
         name: &str,
     ) -> Result<Self, crate::Error> {
-        let messenger = Messenger::new_named(config, registry, name)?;
+        let transport = crate::transport::Transport::new_named(config, name)?;
+        let messenger = Messenger::<RpcContext>::new_named_with_context(transport, config, registry, name)?;
 
         // Get interface before moving messenger
         let interface = messenger.get_messenger_interface();
@@ -131,7 +137,7 @@ impl RpcMessenger {
     /// Internal event loop that processes messages and completes pending
     /// requests
     fn run_event_loop(
-        mut messenger: Messenger,
+        mut messenger: Messenger<RpcContext>,
         pending_requests: Arc<Mutex<HashMap<u64, PendingRequest>>>,
     ) {
         loop {
@@ -164,27 +170,24 @@ impl RpcMessenger {
                             }
                         });
                     }
-                    MessengerEvent::Message { msg, id, .. } => {
-                        // Check if this message has a request ID (is a
-                        // response)
-                        if let Some(request_id) = msg.get_request_id() {
-                            let mut pending = pending_requests.lock().unwrap();
-                            if let Some(pending_req) = pending.remove(&request_id) {
-                                // Security check: ensure response came from the
-                                // correct connection
-                                if pending_req.connection_id != id {
-                                    // TODO: Proper error handling - log
-                                    // security violation and drop message
-                                    eprintln!(
-                                        "Security violation: response for request {} came from connection {} but expected connection {}",
-                                        request_id, id, pending_req.connection_id
-                                    );
-                                    continue;
-                                }
-
-                                // Send the message to the waiting future
-                                let _ = pending_req.sender.send(msg);
+                    MessengerEvent::Message { msg, id, ctx } => {
+                        // All messages are responses that need to be matched to pending requests
+                        let mut pending = pending_requests.lock().unwrap();
+                        if let Some(pending_req) = pending.remove(&ctx.request_id) {
+                            // Security check: ensure response came from the
+                            // correct connection
+                            if pending_req.connection_id != id {
+                                // TODO: Proper error handling - log
+                                // security violation and drop message
+                                eprintln!(
+                                    "Security violation: response for request {} came from connection {} but expected connection {}",
+                                    ctx.request_id, id, pending_req.connection_id
+                                );
+                                continue;
                             }
+
+                            // Send the message to the waiting future
+                            let _ = pending_req.sender.send(msg);
                         }
                     }
                 }
@@ -199,15 +202,12 @@ impl RpcMessenger {
     /// - The response was of the wrong type
     /// - The event loop terminated unexpectedly
     ///
-    /// The request message must have
-    /// [`get_request_id()`](Message::get_request_id) and
-    /// [`set_request_id()`](Message::set_request_id) implemented. The request
-    /// ID will be set automatically before sending.
+    /// The request ID is automatically assigned and included in the RpcContext.
     #[instrument(skip(self, request))]
     pub async fn send_request<Resp: Message>(
         &self,
         peer_id: usize,
-        mut request: Box<dyn Message>,
+        request: Box<dyn Message>,
     ) -> Result<Resp, RequestError> {
         // Generate unique request ID
         let request_id = {
@@ -219,8 +219,8 @@ impl RpcMessenger {
 
         debug!("Sending request {} to peer {}", request_id, peer_id);
 
-        // Set the request ID on the message
-        request.set_request_id(request_id);
+        // Create RpcContext with the request ID
+        let ctx = RpcContext::new(request_id);
 
         // Create oneshot channel for this request
         let (tx, rx) = oneshot::channel();
@@ -234,8 +234,8 @@ impl RpcMessenger {
             },
         );
 
-        // Send request (non-blocking)
-        self.interface.send_to(peer_id, &*request);
+        // Send request with context (non-blocking)
+        self.interface.send_to_with_context(peer_id, &*request, &ctx);
 
         // Await response - this future completes when event loop receives response
         let response = rx.await.map_err(|_| {

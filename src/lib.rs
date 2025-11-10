@@ -246,8 +246,8 @@ pub mod rpc;
 // These are the intended public API
 pub use error::Error;
 pub use messenger::{
-    Context, EmptyContext, Message, MessageDeserializer, MessageRegistry, MessageSerializer,
-    Messenger, MessengerEvent, MessengerInterface,
+    Context, Message, MessageDeserializer, MessageRegistry, MessageSerializer, Messenger,
+    MessengerEvent, MessengerInterface,
 };
 pub use transport::{Transport, TransportEvent, TransportInterface};
 
@@ -255,7 +255,7 @@ pub use transport::{Transport, TransportEvent, TransportInterface};
 #[cfg(feature = "rpc")]
 pub use error::RequestError;
 #[cfg(feature = "rpc")]
-pub use rpc::RpcMessenger;
+pub use rpc::{RpcContext, RpcMessenger};
 
 // Bincode support (optional feature, enabled by default)
 #[cfg(feature = "bincode")]
@@ -266,8 +266,8 @@ pub mod prelude {
     pub use crate::error::Error;
     pub use crate::impl_message;
     pub use crate::messenger::{
-        Context, EmptyContext, Message, MessageDeserializer, MessageRegistry, MessageSerializer,
-        Messenger, MessengerEvent, MessengerInterface,
+        Context, Message, MessageDeserializer, MessageRegistry, MessageSerializer, Messenger,
+        MessengerEvent, MessengerInterface,
     };
     pub use crate::transport::{Transport, TransportEvent, TransportInterface};
 
@@ -275,9 +275,7 @@ pub mod prelude {
     #[cfg(feature = "rpc")]
     pub use crate::error::RequestError;
     #[cfg(feature = "rpc")]
-    pub use crate::impl_rpc_message;
-    #[cfg(feature = "rpc")]
-    pub use crate::rpc::RpcMessenger;
+    pub use crate::rpc::{RpcContext, RpcMessenger};
 
     // Bincode support (optional feature, enabled by default)
     #[cfg(feature = "bincode")]

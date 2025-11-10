@@ -8,9 +8,9 @@ use tracing::{error, trace, warn};
 // Type Aliases
 // ============================================================================
 
-// Result type for message deserialization, containing the context, message and bytes
+// Result type for message deserialization, containing the message, context, and bytes
 // consumed.
-type DeserializeResult<C> = Result<Option<(C, Box<dyn Message>, usize)>, Error>;
+type DeserializeResult<C> = Result<Option<(Box<dyn Message>, C, usize)>, Error>;
 
 // ============================================================================
 // Constants
@@ -33,28 +33,9 @@ const INITIAL_BODY_CAPACITY: usize = 64;
 ///
 /// All messages must be Send + Debug + Downcast to support multi-threaded
 /// message dispatch and downcasting for type-specific handling.
-///
-/// The optional request-response methods allow messages to participate in
-/// request-response patterns without requiring a separate trait hierarchy.
 pub trait Message: Send + Debug + Downcast {
     /// Returns the unique identifier for this message type.
     fn message_id(&self) -> &str;
-    
-    /// Gets the request ID for request-response messages.
-    /// 
-    /// Returns `None` for regular messages. Override this method for messages
-    /// that participate in request-response communication.
-    fn get_request_id(&self) -> Option<u64> {
-        None
-    }
-    
-    /// Sets the request ID for request-response messages.
-    /// 
-    /// Does nothing for regular messages. Override this method for messages
-    /// that participate in request-response communication.
-    fn set_request_id(&mut self, _id: u64) {
-        // Default: no-op
-    }
 }
 
 impl_downcast!(Message);
@@ -190,7 +171,7 @@ pub(super) fn serialize_message<C: Context>(
 /// rather than erroring, allowing the caller to wait for more bytes to arrive.
 ///
 /// Returns:
-/// - `Ok(Some((ctx, msg, bytes_read)))` - Successfully deserialized context and message
+/// - `Ok(Some((msg, ctx, bytes_read)))` - Successfully deserialized message and context
 /// - `Ok(None)` - Not enough data available (normal streaming condition)
 /// - `Err(_)` - Invalid data (bad magic bytes, malformed data, unknown message ID)
 pub(super) fn deserialize_message<C: Context>(
@@ -294,5 +275,5 @@ pub(super) fn deserialize_message<C: Context>(
         e
     })?;
 
-    Ok(Some((ctx, msg, msg_size)))
+    Ok(Some((msg, ctx, msg_size)))
 }

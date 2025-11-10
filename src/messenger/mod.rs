@@ -109,21 +109,6 @@ impl Messenger {
         name: &str,
     ) -> Result<Self, Error> {
         let transport = Transport::new_named(config, name)?;
-        Self::new_with_transport(transport, config, registry, name)
-    }
-
-    /// Creates a new Messenger instance with a custom [`Transport`]
-    /// implementation.
-    ///
-    /// This is only useful if you've implemented a custom transport type. For
-    /// standard TCP/TLS transports, use [`new()`](Self::new) or
-    /// [`new_named()`](Self::new_named) instead.
-    pub fn new_with_transport(
-        transport: Transport,
-        _config: &Config,
-        registry: &MessageRegistry,
-        _name: &str,
-    ) -> Result<Self, Error> {
         Ok(Self {
             transport,
             registry: registry.clone(),
@@ -138,6 +123,24 @@ impl Messenger {
 // ============================================================================
 
 impl<C: Context> Messenger<C> {
+    /// Creates a new Messenger instance with a custom context type and transport.
+    ///
+    /// This allows creating a Messenger with a specific context type (e.g., RpcContext)
+    /// rather than the default EmptyContext.
+    pub fn new_named_with_context(
+        transport: Transport,
+        _config: &Config,
+        registry: &MessageRegistry,
+        _name: &str,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            transport,
+            registry: registry.clone(),
+            recv_buffers: HashMap::new(),
+            _phantom: std::marker::PhantomData,
+        })
+    }
+
     // ============================================================================
     // Connection Management
     // ============================================================================
@@ -434,7 +437,7 @@ impl<C: Context> Messenger<C> {
 
                         while recv_pos < recv_buf.len() {
                             match deserialize_message::<C>(&recv_buf[recv_pos..], &self.registry) {
-                                Ok(Some((ctx, msg, bytes_read))) => {
+                                Ok(Some((msg, ctx, bytes_read))) => {
                                     debug!(
                                         id,
                                         msg_id = msg.message_id(),

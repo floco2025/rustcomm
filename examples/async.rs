@@ -10,8 +10,8 @@ use config::Config;
 use futures::executor::block_on;
 use futures::join;
 use rustcomm::{
-    impl_rpc_message, register_bincode_message, MessageRegistry, Messenger, MessengerEvent,
-    RpcMessenger,
+    impl_message, register_bincode_message, MessageRegistry, Messenger, MessengerEvent,
+    RpcContext, RpcMessenger,
 };
 use std::net::SocketAddr;
 use std::thread;
@@ -19,26 +19,26 @@ use std::thread;
 // Request message with unique ID for matching responses
 #[derive(Encode, Decode, Debug, Default)]
 struct Request {
-    request_id: u64,
     text: String,
 }
 
-// Use the macro to implement Message trait with request-response support
-impl_rpc_message!(Request, request_id);
+// Use the macro to implement Message trait
+impl_message!(Request);
 
 // Response message with ID to match back to request
 #[derive(Encode, Decode, Debug, Default)]
 struct Response {
-    request_id: u64,
     text: String,
 }
 
-// Use the macro to implement Message trait with request-response support
-impl_rpc_message!(Response, request_id);
+// Use the macro to implement Message trait
+impl_message!(Response);
 
 /// Server echoes back every request as a response
 fn run_server(config: &Config, registry: &MessageRegistry) -> SocketAddr {
-    let mut messenger = Messenger::new(config, registry).expect("Failed to create messenger");
+    let transport = rustcomm::transport::Transport::new(config).expect("Failed to create transport");
+    let mut messenger = Messenger::<RpcContext>::new_named_with_context(transport, config, registry, "")
+        .expect("Failed to create messenger");
     let (_listener_id, listener_addr) = messenger.listen("127.0.0.1:0").expect("Failed to listen");
 
     thread::spawn(move || {
@@ -46,19 +46,18 @@ fn run_server(config: &Config, registry: &MessageRegistry) -> SocketAddr {
             let events = messenger.fetch_events().expect("Failed to fetch events");
             for event in events {
                 match event {
-                    MessengerEvent::Message { id, msg, .. } => {
-                        // Server receives Request, sends back Response
+                    MessengerEvent::Message { id, msg, ctx } => {
+                        // Server receives Request, sends back Response with same request_id in context
                         if let Some(request) = msg.downcast_ref::<Request>() {
                             println!(
                                 "[Server] Received request {}: {}",
-                                request.request_id, request.text
+                                ctx.request_id, request.text
                             );
 
                             let response = Response {
-                                request_id: request.request_id,
                                 text: format!("Echo: {}", request.text),
                             };
-                            messenger.send_to(id, &response);
+                            messenger.send_to_with_context(id, &response, &ctx);
                         }
                     }
                     _ => {}
