@@ -20,40 +20,103 @@ use tracing::{debug, error, instrument};
 // ============================================================================
 
 /// Context for RPC messages containing request/response tracking information.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RpcContext {
     /// The request ID for matching requests with responses.
     pub request_id: u64,
+    /// The service name being called.
+    pub service: String,
+    /// The method name being called.
+    pub method: String,
 }
 
 impl RpcContext {
-    /// Creates a new RpcContext with the given request ID.
-    pub fn new(request_id: u64) -> Self {
-        Self { request_id }
+    /// Creates a new RpcContext with the given request ID, service, and method.
+    pub fn new(request_id: u64, service: String, method: String) -> Self {
+        Self {
+            request_id,
+            service,
+            method,
+        }
     }
 }
 
 impl Context for RpcContext {
     fn serialize_into(&self, buf: &mut Vec<u8>) {
         buf.extend(&self.request_id.to_le_bytes());
+        
+        // Serialize service string (length + data)
+        let service_bytes = self.service.as_bytes();
+        buf.extend(&(service_bytes.len() as u32).to_le_bytes());
+        buf.extend(service_bytes);
+        
+        // Serialize method string (length + data)
+        let method_bytes = self.method.as_bytes();
+        buf.extend(&(method_bytes.len() as u32).to_le_bytes());
+        buf.extend(method_bytes);
     }
 
     fn deserialize(buf: &[u8]) -> Result<(Self, usize), crate::Error>
     where
         Self: Sized,
     {
+        let mut pos = 0;
+        
+        // Deserialize request_id
         if buf.len() < 8 {
             return Err(crate::Error::MalformedData(
-                "RpcContext requires 8 bytes for request_id".to_string(),
+                "RpcContext requires at least 8 bytes for request_id".to_string(),
             ));
         }
-
         let request_id_bytes: [u8; 8] = buf[0..8]
             .try_into()
             .map_err(|_| crate::Error::MalformedData("Invalid request ID".to_string()))?;
         let request_id = u64::from_le_bytes(request_id_bytes);
+        pos += 8;
+        
+        // Deserialize service string
+        if buf.len() < pos + 4 {
+            return Err(crate::Error::MalformedData(
+                "RpcContext missing service length".to_string(),
+            ));
+        }
+        let service_len_bytes: [u8; 4] = buf[pos..pos + 4]
+            .try_into()
+            .map_err(|_| crate::Error::MalformedData("Invalid service length".to_string()))?;
+        let service_len = u32::from_le_bytes(service_len_bytes) as usize;
+        pos += 4;
+        
+        if buf.len() < pos + service_len {
+            return Err(crate::Error::MalformedData(
+                "RpcContext missing service data".to_string(),
+            ));
+        }
+        let service = String::from_utf8(buf[pos..pos + service_len].to_vec())
+            .map_err(|_| crate::Error::MalformedData("Invalid service UTF-8".to_string()))?;
+        pos += service_len;
+        
+        // Deserialize method string
+        if buf.len() < pos + 4 {
+            return Err(crate::Error::MalformedData(
+                "RpcContext missing method length".to_string(),
+            ));
+        }
+        let method_len_bytes: [u8; 4] = buf[pos..pos + 4]
+            .try_into()
+            .map_err(|_| crate::Error::MalformedData("Invalid method length".to_string()))?;
+        let method_len = u32::from_le_bytes(method_len_bytes) as usize;
+        pos += 4;
+        
+        if buf.len() < pos + method_len {
+            return Err(crate::Error::MalformedData(
+                "RpcContext missing method data".to_string(),
+            ));
+        }
+        let method = String::from_utf8(buf[pos..pos + method_len].to_vec())
+            .map_err(|_| crate::Error::MalformedData("Invalid method UTF-8".to_string()))?;
+        pos += method_len;
 
-        Ok((Self { request_id }, 8))
+        Ok((Self { request_id, service, method }, pos))
     }
 }
 
@@ -204,10 +267,12 @@ impl RpcMessenger {
     /// - The event loop terminated unexpectedly
     ///
     /// The request ID is automatically assigned and included in the RpcContext.
-    #[instrument(skip(self, request))]
+    #[instrument(skip(self, request, service, method))]
     pub async fn send_request<Resp: Message>(
         &self,
         peer_id: usize,
+        service: impl Into<String>,
+        method: impl Into<String>,
         request: Box<dyn Message>,
     ) -> Result<Resp, RequestError> {
         // Generate unique request ID
@@ -216,7 +281,7 @@ impl RpcMessenger {
         debug!("Sending request {} to peer {}", request_id, peer_id);
 
         // Create RpcContext with the request ID
-        let ctx = RpcContext::new(request_id);
+        let ctx = RpcContext::new(request_id, service.into(), method.into());
 
         // Create oneshot channel for this request
         let (tx, rx) = oneshot::channel();

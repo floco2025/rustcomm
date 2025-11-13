@@ -16,25 +16,33 @@ use rustcomm::{
 use std::net::SocketAddr;
 use std::thread;
 
-// Request message with unique ID for matching responses
+// Request and response messages
 #[derive(Encode, Decode, Debug, Default)]
-struct Request {
-    text: String,
+struct CalculateRequest {
+    a: i32,
+    b: i32,
 }
+impl_message!(CalculateRequest);
 
-// Use the macro to implement Message trait
-impl_message!(Request);
-
-// Response message with ID to match back to request
 #[derive(Encode, Decode, Debug, Default)]
-struct Response {
-    text: String,
+struct CalculateResponse {
+    result: i32,
 }
+impl_message!(CalculateResponse);
 
-// Use the macro to implement Message trait
-impl_message!(Response);
+#[derive(Encode, Decode, Debug, Default)]
+struct GreetRequest {
+    name: String,
+}
+impl_message!(GreetRequest);
 
-/// Server echoes back every request as a response
+#[derive(Encode, Decode, Debug, Default)]
+struct GreetResponse {
+    message: String,
+}
+impl_message!(GreetResponse);
+
+/// Server handles requests and sends responses
 fn run_server(config: &Config, registry: &MessageRegistry) -> SocketAddr {
     let transport = rustcomm::transport::Transport::new(config).expect("Failed to create transport");
     let mut messenger = Messenger::<RpcContext>::new_named_with_context(transport, config, registry, "")
@@ -47,17 +55,32 @@ fn run_server(config: &Config, registry: &MessageRegistry) -> SocketAddr {
             for event in events {
                 match event {
                     MessengerEvent::Message { id, msg, ctx } => {
-                        // Server receives Request, sends back Response with same request_id in context
-                        if let Some(request) = msg.downcast_ref::<Request>() {
-                            println!(
-                                "[Server] Received request {}: {}",
-                                ctx.request_id, request.text
-                            );
-
-                            let response = Response {
-                                text: format!("Echo: {}", request.text),
-                            };
-                            messenger.send_to_with_context(id, &response, &ctx);
+                        match (ctx.service.as_str(), ctx.method.as_str()) {
+                            ("MathService", "Add") => {
+                                if let Some(req) = msg.downcast_ref::<CalculateRequest>() {
+                                    let resp = CalculateResponse { result: req.a + req.b };
+                                    messenger.send_to_with_context(id, &resp, &ctx);
+                                }
+                            }
+                            ("MathService", "Multiply") => {
+                                if let Some(req) = msg.downcast_ref::<CalculateRequest>() {
+                                    let resp = CalculateResponse { result: req.a * req.b };
+                                    messenger.send_to_with_context(id, &resp, &ctx);
+                                }
+                            }
+                            ("GreetService", "SayHello") => {
+                                if let Some(req) = msg.downcast_ref::<GreetRequest>() {
+                                    let resp = GreetResponse { message: format!("Hello, {}!", req.name) };
+                                    messenger.send_to_with_context(id, &resp, &ctx);
+                                }
+                            }
+                            ("GreetService", "SayGoodbye") => {
+                                if let Some(req) = msg.downcast_ref::<GreetRequest>() {
+                                    let resp = GreetResponse { message: format!("Goodbye, {}!", req.name) };
+                                    messenger.send_to_with_context(id, &resp, &ctx);
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     _ => {}
@@ -73,53 +96,55 @@ fn main() {
     // Create config and registry
     let config = Config::default();
     let mut registry = MessageRegistry::new();
-    register_bincode_message!(registry, Request);
-    register_bincode_message!(registry, Response);
+    register_bincode_message!(registry, CalculateRequest);
+    register_bincode_message!(registry, CalculateResponse);
+    register_bincode_message!(registry, GreetRequest);
+    register_bincode_message!(registry, GreetResponse);
 
     // Start server in background thread
     let server_addr = run_server(&config, &registry);
     println!("[Main] Server started at {}", server_addr);
 
     // Create RpcMessenger - creates its own messenger and starts event loop
-    let req_resp =
-        RpcMessenger::new(&config, &registry).expect("Failed to create RpcMessenger");
+    let rpc = RpcMessenger::new(&config, &registry).expect("Failed to create RpcMessenger");
 
-    // Connect to server using RpcMessenger's connect() method
-    let (server_id, _) = req_resp.connect(server_addr).expect("Failed to connect");
-    println!("[Main] Connected to server with id {}", server_id);
+    // Connect to server
+    let (server_id, _) = rpc.connect(server_addr).expect("Failed to connect");
+    println!("[Main] Connected to server\n");
 
-    // Now we can make concurrent async requests!
-    println!("\n[Main] Sending 3 concurrent requests...\n");
-
-    // Use futures::executor to run async code without tokio
+    // Make concurrent async requests to different services
     let results = block_on(async {
         join!(
-            req_resp.send_request::<Response>(
+            rpc.send_request::<CalculateResponse>(
                 server_id,
-                Box::new(Request {
-                    text: "Hello".to_string(),
-                    ..Default::default()
-                })
+                "MathService",
+                "Add",
+                Box::new(CalculateRequest { a: 5, b: 3 })
             ),
-            req_resp.send_request::<Response>(
+            rpc.send_request::<CalculateResponse>(
                 server_id,
-                Box::new(Request {
-                    text: "World".to_string(),
-                    ..Default::default()
-                })
+                "MathService",
+                "Multiply",
+                Box::new(CalculateRequest { a: 4, b: 7 })
             ),
-            req_resp.send_request::<Response>(
+            rpc.send_request::<GreetResponse>(
                 server_id,
-                Box::new(Request {
-                    text: "Async".to_string(),
-                    ..Default::default()
-                })
+                "GreetService",
+                "SayHello",
+                Box::new(GreetRequest { name: "Alice".to_string() })
+            ),
+            rpc.send_request::<GreetResponse>(
+                server_id,
+                "GreetService",
+                "SayGoodbye",
+                Box::new(GreetRequest { name: "Bob".to_string() })
             ),
         )
     });
 
-    println!("\n[Main] All responses received:");
-    println!("  Response 1: {}", results.0.unwrap().text);
-    println!("  Response 2: {}", results.1.unwrap().text);
-    println!("  Response 3: {}", results.2.unwrap().text);
+    println!("[Main] Results:");
+    println!("  MathService.Add: {}", results.0.unwrap().result);
+    println!("  MathService.Multiply: {}", results.1.unwrap().result);
+    println!("  GreetService.SayHello: {}", results.2.unwrap().message);
+    println!("  GreetService.SayGoodbye: {}", results.3.unwrap().message);
 }
