@@ -442,8 +442,6 @@ impl<C: Context> Messenger<C> {
     /// adds message deserialization on top of the raw transport events.
     #[instrument(skip(self))]
     pub fn fetch_events(&mut self) -> Result<Vec<MessengerEvent<C>>, Error>
-    where
-        C: Default,
     {
         let mut dispatch_events = Vec::new();
 
@@ -534,8 +532,6 @@ impl<C: Context> Messenger<C> {
 
     /// Gets a MessengerInterface for sending messages from other threads.
     pub fn get_messenger_interface(&self) -> MessengerInterface<C>
-    where
-        C: Default,
     {
         let transport_interface = self.transport.get_transport_interface();
         MessengerInterface::new(transport_interface, self.registry.clone())

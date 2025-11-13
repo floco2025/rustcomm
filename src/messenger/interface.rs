@@ -20,8 +20,6 @@ pub struct MessengerInterface<C: Context = EmptyContext> {
 
 impl<C: Context> MessengerInterface<C> {
     pub(super) fn new(transport_interface: TransportInterface, registry: MessageRegistry) -> Self
-    where
-        C: Default,
     {
         Self {
             transport_interface,

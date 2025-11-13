@@ -20,7 +20,7 @@ use tracing::{debug, error, instrument};
 // ============================================================================
 
 /// Context for RPC messages containing request/response tracking information.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct RpcContext {
     /// The request ID for matching requests with responses.
     pub request_id: u64,
@@ -57,8 +57,6 @@ impl Context for RpcContext {
     }
 
     fn deserialize(buf: &[u8]) -> Result<(Self, usize), crate::Error>
-    where
-        Self: Sized,
     {
         let mut pos = 0;
 
