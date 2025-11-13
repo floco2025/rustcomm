@@ -16,7 +16,6 @@
 //! ```
 
 mod message_types;
-mod tls_test_helper;
 
 use message_types::*;
 use rustcomm::prelude::*;
@@ -88,17 +87,18 @@ fn register_all_messages(registry: &mut MessageRegistry) {
     register_bincode_message!(registry, UltraNestedMessage);
 }
 
-fn build_config(transport_type: &str) -> (config::Config, tls_test_helper::TlsCertGuard) {
-    let (tls_config, guard) = tls_test_helper::generate_test_tls_config_separate();
-
-    let config = config::Config::builder()
-        .add_source(tls_config)
+fn build_config(transport_type: &str) -> config::Config {
+    config::Config::builder()
         .set_default("transport_type", transport_type)
         .unwrap()
+        .set_default("tls_server_cert", "tests/cert.pem")
+        .unwrap()
+        .set_default("tls_server_key", "tests/key.pem")
+        .unwrap()
+        .set_default("tls_ca_cert", "tests/cert.pem")
+        .unwrap()
         .build()
-        .unwrap();
-
-    (config, guard)
+        .unwrap()
 }
 
 fn send_and_receive<T>(messenger: &mut Messenger, server_id: usize, message: T)
@@ -173,7 +173,7 @@ fn test_client_server(transport_type: &str) {
     // Initialize tracing (controlled by TEST_LOG environment variable)
     init_tracing();
 
-    let (config, guard) = build_config(transport_type);
+    let config = build_config(transport_type);
 
     let mut registry = MessageRegistry::new();
     register_all_messages(&mut registry);
@@ -188,9 +188,6 @@ fn test_client_server(transport_type: &str) {
         Messenger::new(&config, &registry).expect("Failed to create client messenger");
 
     test_client_server_with_messenger(client_messenger, local_addr);
-
-    // Keep guard alive until after test completes
-    drop(guard);
 }
 
 fn test_client_server_with_messenger(mut messenger: Messenger, local_addr: SocketAddr) {

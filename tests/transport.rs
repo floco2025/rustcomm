@@ -1,5 +1,3 @@
-mod tls_test_helper;
-
 use rustcomm::prelude::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -20,17 +18,18 @@ fn transport_mesh_tcp() {
 fn transport_mesh_tls() {
     println!("=== P2P Mesh TLS Transport Test ===\n");
 
-    let (tls_config, guard) = tls_test_helper::generate_test_tls_config_separate();
     let config = config::Config::builder()
-        .add_source(tls_config)
-        .set_override("transport_type", "tls")
+        .set_default("transport_type", "tls")
+        .unwrap()
+        .set_default("tls_server_cert", "tests/cert.pem")
+        .unwrap()
+        .set_default("tls_server_key", "tests/key.pem")
+        .unwrap()
+        .set_default("tls_ca_cert", "tests/cert.pem")
         .unwrap()
         .build()
         .unwrap();
     run_transport_mesh_test(config);
-
-    // Keep guard alive until after test completes
-    drop(guard);
 }
 
 fn run_transport_mesh_test(config: config::Config) {

@@ -10,5 +10,6 @@ Cargo.lock
 *.crt
 *.csr
 
-# Exception: Sample certificates for chat example (development/testing only)
+# Exception: Sample certificates for development/testing only
 !examples/chat/*.pem
+!tests/*.pem
