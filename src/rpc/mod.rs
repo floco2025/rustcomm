@@ -3,7 +3,7 @@
 //! ⚠️ **WORK IN PROGRESS - DO NOT USE** ⚠️
 //!
 //! This module is under active development and the API will change
-//! significantly. Do not use this until it if finished.
+//! significantly. Do not use this until it is finished.
 
 use crate::{
     Context, Message, MessageRegistry, Messenger, MessengerEvent, MessengerInterface, RequestError,
