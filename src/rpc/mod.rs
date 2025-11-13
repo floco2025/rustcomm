@@ -44,12 +44,12 @@ impl RpcContext {
 impl Context for RpcContext {
     fn serialize_into(&self, buf: &mut Vec<u8>) {
         buf.extend(&self.request_id.to_le_bytes());
-        
+
         // Serialize service string (length + data)
         let service_bytes = self.service.as_bytes();
         buf.extend(&(service_bytes.len() as u32).to_le_bytes());
         buf.extend(service_bytes);
-        
+
         // Serialize method string (length + data)
         let method_bytes = self.method.as_bytes();
         buf.extend(&(method_bytes.len() as u32).to_le_bytes());
@@ -61,7 +61,7 @@ impl Context for RpcContext {
         Self: Sized,
     {
         let mut pos = 0;
-        
+
         // Deserialize request_id
         if buf.len() < 8 {
             return Err(crate::Error::MalformedData(
@@ -73,7 +73,7 @@ impl Context for RpcContext {
             .map_err(|_| crate::Error::MalformedData("Invalid request ID".to_string()))?;
         let request_id = u64::from_le_bytes(request_id_bytes);
         pos += 8;
-        
+
         // Deserialize service string
         if buf.len() < pos + 4 {
             return Err(crate::Error::MalformedData(
@@ -85,7 +85,7 @@ impl Context for RpcContext {
             .map_err(|_| crate::Error::MalformedData("Invalid service length".to_string()))?;
         let service_len = u32::from_le_bytes(service_len_bytes) as usize;
         pos += 4;
-        
+
         if buf.len() < pos + service_len {
             return Err(crate::Error::MalformedData(
                 "RpcContext missing service data".to_string(),
@@ -94,7 +94,7 @@ impl Context for RpcContext {
         let service = String::from_utf8(buf[pos..pos + service_len].to_vec())
             .map_err(|_| crate::Error::MalformedData("Invalid service UTF-8".to_string()))?;
         pos += service_len;
-        
+
         // Deserialize method string
         if buf.len() < pos + 4 {
             return Err(crate::Error::MalformedData(
@@ -106,7 +106,7 @@ impl Context for RpcContext {
             .map_err(|_| crate::Error::MalformedData("Invalid method length".to_string()))?;
         let method_len = u32::from_le_bytes(method_len_bytes) as usize;
         pos += 4;
-        
+
         if buf.len() < pos + method_len {
             return Err(crate::Error::MalformedData(
                 "RpcContext missing method data".to_string(),
@@ -116,7 +116,14 @@ impl Context for RpcContext {
             .map_err(|_| crate::Error::MalformedData("Invalid method UTF-8".to_string()))?;
         pos += method_len;
 
-        Ok((Self { request_id, service, method }, pos))
+        Ok((
+            Self {
+                request_id,
+                service,
+                method,
+            },
+            pos,
+        ))
     }
 }
 
@@ -145,7 +152,8 @@ impl RpcMessenger {
     /// be accessed directly.
     pub fn new(config: &config::Config, registry: &MessageRegistry) -> Result<Self, crate::Error> {
         let transport = crate::transport::Transport::new(config)?;
-        let messenger = Messenger::<RpcContext>::new_named_with_context(transport, config, registry, "")?;
+        let messenger =
+            Messenger::<RpcContext>::new_named_with_context(transport, config, registry, "")?;
 
         // Get interface before moving messenger
         let interface = messenger.get_messenger_interface();
@@ -177,7 +185,8 @@ impl RpcMessenger {
         name: &str,
     ) -> Result<Self, crate::Error> {
         let transport = crate::transport::Transport::new_named(config, name)?;
-        let messenger = Messenger::<RpcContext>::new_named_with_context(transport, config, registry, name)?;
+        let messenger =
+            Messenger::<RpcContext>::new_named_with_context(transport, config, registry, name)?;
 
         // Get interface before moving messenger
         let interface = messenger.get_messenger_interface();
@@ -226,8 +235,8 @@ impl RpcMessenger {
                         pending.retain(|_request_id, pending_req| {
                             if pending_req.connection_id == id {
                                 // Connection closed, drop the sender to signal
-                                // cancellation This will cause the receiver to
-                                // get a Canceled error
+                                // cancellation. This will cause the receiver to
+                                // get a Canceled error.
                                 false
                             } else {
                                 true
@@ -243,11 +252,10 @@ impl RpcMessenger {
                             if pending_req.connection_id != id {
                                 // TODO: Proper error handling - log
                                 // security violation and drop message
-                                eprintln!(
-                                    "Security violation: response for request {} came from connection {} but expected connection {}",
+                                panic!(
+                                    "Response for request {} came from connection {}, expected {}",
                                     ctx.request_id, id, pending_req.connection_id
                                 );
-                                continue;
                             }
 
                             // Send the message to the waiting future
@@ -296,7 +304,8 @@ impl RpcMessenger {
         );
 
         // Send request with context (non-blocking)
-        self.interface.send_to_with_context(peer_id, &*request, &ctx);
+        self.interface
+            .send_to_with_context(peer_id, &*request, &ctx);
 
         // Await response - this future completes when event loop receives response
         let response = rx.await.map_err(|_| {
