@@ -11,8 +11,8 @@
 //! This example also demonstrates graceful server shutdown. After the client
 //! completes, it calls [`MessengerInterface::close_all()`] on the server
 //! interface, which closes all connections and listeners. When worker threads
-//! call [`Messenger::fetch_events()`], they receive an
-//! [`Inactive`](MessengerEvent::Inactive) event and exit cleanly.
+//! call [`Messenger::fetch_events()`], they receive an [`Inactive`] event and
+//! exit cleanly.
 
 use bincode::{Decode, Encode};
 use config::Config;

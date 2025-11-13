@@ -17,12 +17,10 @@
 //!
 //! ## Key Features
 //!
-//! - [`Messenger::new(config)`](Messenger::new) - Creates instance without
-//!   client/server role commitment
-//! - [`messenger.listen(addr)`](Messenger::listen) - Adds listener for peers to
-//!   connect to
-//! - [`messenger.connect(addr)`](Messenger::connect) - Initiates connections to
-//!   peers
+//! - [`Messenger::new(config)`] - Creates instance without client/server role
+//!   commitment
+//! - [`messenger.listen(addr)`] - Adds listener for peers to connect to
+//! - [`messenger.connect(addr)`] - Initiates connections to peers
 //! - Bidirectional communication over each connection
 //! - Each peer sends and receives messages from all others
 //!

@@ -58,8 +58,8 @@ pub enum Error {
 
     /// Received a message with an ID that hasn't been registered.
     ///
-    /// Make sure all message types are registered in the
-    /// [`MessageRegistry`](crate::MessageRegistry) before deserializing.
+    /// Make sure all message types are registered in the [`MessageRegistry`]
+    /// before deserializing.
     #[error("Unknown message ID: {0}")]
     UnknownMessageId(String),
 

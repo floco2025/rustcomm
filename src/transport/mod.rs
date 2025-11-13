@@ -219,10 +219,9 @@ impl Transport {
     /// [`TransportInterface`] instead.
     ///
     /// Returns a tuple of (listener_id, socket_addr) where:
-    /// - `listener_id`: Can be used with
-    ///   [`close_listener()`](Self::close_listener) to stop listening. Note:
-    ///   This ID cannot be used for sending data - only for closing the
-    ///   listener.
+    /// - `listener_id`: Can be used with [`close_listener()`] to stop
+    ///   listening. Note: This ID cannot be used for sending data - only for
+    ///   closing the listener.
     /// - `socket_addr`: The actual address being listened on (useful when
     ///   binding to port 0 for dynamic allocation).
     ///
@@ -314,8 +313,7 @@ impl Transport {
     ///
     /// **Note:** This does not trigger [`TransportEvent::Disconnected`] events.
     /// However, it will trigger a [`TransportEvent::Inactive`] event if no new
-    /// connections or listeners are created before calling
-    /// [`fetch_events()`](Self::fetch_events).
+    /// connections or listeners are created before calling [`fetch_events()`].
     pub fn close_all(&mut self) {
         self.inner.close_all()
     }
