@@ -38,7 +38,7 @@ use rustcomm::{
     impl_message, register_bincode_message, MessageRegistry, Messenger, MessengerEvent,
 };
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{Shutdown, SocketAddr};
 use std::thread;
 
 // Message type for peer communication
@@ -144,6 +144,13 @@ fn run_peer(name: &str, mut messenger: Messenger, connect_addrs: Vec<SocketAddr>
                         }
                     }
                 }
+                MessengerEvent::Disconnected { id } => {
+                    println!("[{name}] Peer disconnected (id: {id})");
+                    connected_peers.remove(&id);
+                    if connected_peers.is_empty() {
+                        return;
+                    }
+                }
                 MessengerEvent::Message { id: _, msg, .. } => {
                     if let Some(peer_msg) = msg.downcast_ref::<PeerMessage>() {
                         println!(
@@ -157,7 +164,7 @@ fn run_peer(name: &str, mut messenger: Messenger, connect_addrs: Vec<SocketAddr>
                             println!(
                                 "[{name}] All messages received! Sent: {messages_sent}, Received: {messages_received}"
                             );
-                            return;
+                            messenger.shutdown_all_connections(Shutdown::Read);
                         }
                     }
                 }

@@ -206,6 +206,56 @@ impl<C: Context> Messenger<C> {
         self.transport.close_listener(id);
     }
 
+    /// Closes all connections.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Delegates to [`Transport::close_all_connections()`]. Additionally cleans
+    /// up all connection message receive buffers.
+    #[instrument(skip(self))]
+    pub fn close_all_connections(&mut self) {
+        // Clean up all connection receive buffers
+        self.recv_buffers.clear();
+        self.transport.close_all_connections()
+    }
+
+    /// Shuts down a connection by its ID.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Delegates to [`Transport::shutdown_connection()`]. See that method for
+    /// full documentation.
+    #[instrument(skip(self))]
+    pub fn shutdown_connection(&mut self, id: usize, how: std::net::Shutdown) {
+        self.transport.shutdown_connection(id, how);
+    }
+
+    /// Shuts down all connections.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Delegates to [`Transport::shutdown_all_connections()`]. See that method
+    /// for full documentation.
+    #[instrument(skip(self))]
+    pub fn shutdown_all_connections(&mut self, how: std::net::Shutdown) {
+        self.transport.shutdown_all_connections(how);
+    }
+
+    /// Closes all listeners.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`MessengerInterface`] instead.
+    ///
+    /// Delegates to [`Transport::close_all_listeners()`]. See that method for
+    /// full documentation.
+    #[instrument(skip(self))]
+    pub fn close_all_listeners(&mut self) {
+        self.transport.close_all_listeners()
+    }
+
     /// Closes all connections and listeners.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
