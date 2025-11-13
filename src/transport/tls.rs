@@ -1,8 +1,8 @@
 //! TLS transport implementation.
 //!
-//! Provides a non-blocking TLS transport layer using rustls and mio for event-driven I/O.
-//! Supports multiple simultaneous secure connections and listeners with a single-threaded
-//! event loop.
+//! Provides a non-blocking TLS transport layer using rustls and mio for
+//! event-driven I/O. Supports multiple simultaneous secure connections and
+//! listeners with a single-threaded event loop.
 
 use super::*;
 use crate::error::Error;

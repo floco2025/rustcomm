@@ -3,17 +3,18 @@ use thiserror::Error;
 /// The error type for rustcomm operations.
 ///
 /// This encompasses all errors that can occur when using the rustcomm library,
-/// including network operations, message serialization/deserialization, and TLS.
+/// including network operations, message serialization/deserialization, and
+/// TLS.
 ///
-/// Most errors are unrecoverable and should be handled by logging and potentially
-/// shutting down. Connection-specific errors (like connection failures or
-/// disconnections) are typically handled through events rather than errors.
+/// Most errors are unrecoverable and should be handled by logging and
+/// potentially shutting down. Connection-specific errors (like connection
+/// failures or disconnections) are typically handled through events rather than
+/// errors.
 #[derive(Error, Debug)]
 pub enum Error {
     // ============================================================================
     // I/O and Networking Errors
     // ============================================================================
-    
     /// Low-level I/O error from the operating system.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -35,7 +36,6 @@ pub enum Error {
     // ============================================================================
     // Message Serialization Errors
     // ============================================================================
-    
     /// Message header doesn't start with the expected magic bytes.
     ///
     /// This typically indicates corrupted data or attempting to deserialize
@@ -58,15 +58,14 @@ pub enum Error {
 
     /// Received a message with an ID that hasn't been registered.
     ///
-    /// Make sure all message types are registered in the [`MessageRegistry`](crate::MessageRegistry)
-    /// before deserializing.
+    /// Make sure all message types are registered in the
+    /// [`MessageRegistry`](crate::MessageRegistry) before deserializing.
     #[error("Unknown message ID: {0}")]
     UnknownMessageId(String),
 
     // ============================================================================
     // TLS Errors
     // ============================================================================
-    
     /// Failed to load TLS certificate file from disk.
     #[error("Failed to load certificate from {path}: {source}")]
     TlsCertificateLoad {
@@ -119,7 +118,6 @@ pub enum Error {
     // ============================================================================
     // Configuration Errors
     // ============================================================================
-    
     /// Configuration file parsing or key lookup failed.
     #[error("Configuration error: {0}")]
     Config(#[from] config::ConfigError),
@@ -138,17 +136,17 @@ pub enum Error {
 /// Errors that can occur during request-response operations.
 ///
 /// These errors are specific to the async request-response layer provided by
-/// the `rpc` feature. They represent failure modes when awaiting responses
-/// to sent requests.
+/// the `rpc` feature. They represent failure modes when awaiting responses to
+/// sent requests.
 #[derive(Error, Debug)]
 pub enum RequestError {
     /// The connection was closed before receiving a response.
     ///
-    /// This happens when the peer disconnects or the connection is lost while
-    /// a request is pending.
+    /// This happens when the peer disconnects or the connection is lost while a
+    /// request is pending.
     #[error("Connection closed")]
     ConnectionClosed,
-    
+
     /// Received a response of the wrong type.
     ///
     /// This occurs when the response message type doesn't match the expected
@@ -156,12 +154,13 @@ pub enum RequestError {
     #[error("Expected response type {expected}, but received a different type")]
     WrongResponseType {
         /// The expected response type name.
-        expected: &'static str
+        expected: &'static str,
     },
-    
+
     /// The event loop was dropped unexpectedly.
     ///
-    /// This should not happen during normal operation and indicates an internal error.
+    /// This should not happen during normal operation and indicates an internal
+    /// error.
     #[error("Event loop terminated unexpectedly")]
     EventLoopTerminated,
 }

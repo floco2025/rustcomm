@@ -1,8 +1,8 @@
 //! TCP transport implementation.
 //!
 //! Provides a non-blocking TCP transport layer using mio for event-driven I/O.
-//! Supports multiple simultaneous connections and listeners with a single-threaded
-//! event loop.
+//! Supports multiple simultaneous connections and listeners with a
+//! single-threaded event loop.
 
 use super::*;
 use crate::error::Error;
@@ -51,7 +51,8 @@ enum WriteConnectionResult {
 ///
 /// Not thread-safe - use TransportInterface for cross-thread communication.
 ///
-/// Note: This struct is internal. Users should use the `Transport` struct instead.
+/// Note: This struct is internal. Users should use the `Transport` struct
+/// instead.
 #[derive(Debug)]
 pub(super) struct TcpTransport {
     connections: HashMap<usize, Connection>,

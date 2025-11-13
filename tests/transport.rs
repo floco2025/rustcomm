@@ -1,6 +1,6 @@
 use rustcomm::prelude::*;
 use std::collections::HashMap;
-use std::net::{SocketAddr, Shutdown};
+use std::net::{Shutdown, SocketAddr};
 use std::thread;
 
 #[test]

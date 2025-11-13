@@ -51,9 +51,9 @@ impl_downcast!(Message);
 pub trait Context: Debug {
     /// Serializes the context into the provided buffer.
     fn serialize_into(&self, buf: &mut Vec<u8>);
-    
+
     /// Deserializes the context from a buffer slice.
-    /// 
+    ///
     /// Returns the deserialized context and number of bytes consumed.
     fn deserialize(buf: &[u8]) -> Result<(Self, usize), Error>
     where
@@ -70,7 +70,7 @@ impl Context for EmptyContext {
     fn serialize_into(&self, _buf: &mut Vec<u8>) {
         // No-op: nothing to serialize
     }
-    
+
     fn deserialize(_buf: &[u8]) -> Result<(Self, usize), Error> {
         // No-op: return empty context with 0 bytes consumed
         Ok((EmptyContext, 0))
@@ -240,8 +240,7 @@ pub(super) fn deserialize_message<C: Context>(
     let remaining_body = &body[ctx_bytes..];
 
     // Read message ID length prefix
-    let msg_id_len_bytes: [u8; 4] = match remaining_body.get(0..4).and_then(|s| s.try_into().ok())
-    {
+    let msg_id_len_bytes: [u8; 4] = match remaining_body.get(0..4).and_then(|s| s.try_into().ok()) {
         Some(bytes) => bytes,
         None => return Ok(None),
     };

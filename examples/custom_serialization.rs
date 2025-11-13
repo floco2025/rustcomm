@@ -1,17 +1,23 @@
 //! Custom Serialization Example
 //!
-//! This example demonstrates how to use different serialization formats with rustcomm.
-//! It shows four approaches:
+//! This example demonstrates how to use different serialization formats with
+//! rustcomm. It shows four approaches:
 //!
-//! 1. **Bincode** (native, with macros) - Binary format using bincode's Encode/Decode traits, no serde dependency
-//! 2. **JSON** (serde-based, manual registration) - Human-readable text format using serde
-//! 3. **MessagePack** (serde-based, manual registration) - Compact binary format using serde
-//! 4. **Hand-written** (manual, no dependencies) - Custom binary format with manual byte manipulation
+//! 1. **Bincode** (native, with macros) - Binary format using bincode's
+//!    Encode/Decode traits, no serde dependency
+//! 2. **JSON** (serde-based, manual registration) - Human-readable text format
+//!    using serde
+//! 3. **MessagePack** (serde-based, manual registration) - Compact binary
+//!    format using serde
+//! 4. **Hand-written** (manual, no dependencies) - Custom binary format with
+//!    manual byte manipulation
 //!
 //! ## Key Concepts
 //!
-//! - Using the `register_bincode_message!` macro for bincode (no serde required)
-//! - Manually registering messages with custom serde-based serialization/deserialization
+//! - Using the `register_bincode_message!` macro for bincode (no serde
+//!   required)
+//! - Manually registering messages with custom serde-based
+//!   serialization/deserialization
 //! - Mixing multiple formats in a single application
 //! - Each message type can use a different serialization format
 //! - Bincode 2.0 can work without serde, while JSON and MessagePack require it
@@ -21,7 +27,8 @@
 //! rustcomm's message system has two function signatures:
 //!
 //! - **Serializer**: `fn(&dyn Message, &mut Vec<u8>)` - writes bytes to buffer
-//! - **Deserializer**: `fn(&[u8]) -> Result<Box<dyn Message>, Error>` - deserializes complete message
+//! - **Deserializer**: `fn(&[u8]) -> Result<Box<dyn Message>, Error>` -
+//!   deserializes complete message
 //!
 //! ## Dependencies
 //!
