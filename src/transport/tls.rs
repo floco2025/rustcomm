@@ -331,6 +331,23 @@ impl TlsTransport {
         }
     }
 
+    /// Shuts down all connections.
+    #[instrument(skip(self))]
+    pub fn shutdown_all_connections(&mut self, how: Shutdown) {
+        for (id, connection) in self.connections.iter() {
+            let local_addr = &connection.local_addr;
+            let peer_addr = &connection.peer_addr;
+            match connection.stream.shutdown(how) {
+                Ok(_) => {
+                    info!(id, how = ?how, %local_addr, %peer_addr, "Shut down connection");
+                }
+                Err(err) => {
+                    warn!(id, how = ?how, %local_addr, %peer_addr, ?err, "Error shutting down connection");
+                }
+            }
+        }
+    }
+
     /// Closes a listener by its ID.
     #[instrument(skip(self))]
     pub fn close_listener(&mut self, id: usize) {
@@ -1093,6 +1110,10 @@ impl TransportImpl for TlsTransport {
 
     fn close_connection(&mut self, id: usize) {
         self.close_connection(id)
+    }
+
+    fn shutdown_all_connections(&mut self, how: Shutdown) {
+        self.shutdown_all_connections(how)
     }
 
     fn close_listener(&mut self, id: usize) {

@@ -1,6 +1,6 @@
 use rustcomm::prelude::*;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, Shutdown};
 use std::thread;
 
 #[test]
@@ -114,12 +114,14 @@ fn run_peer(name: &str, mut transport: Transport, connect_addrs: Vec<SocketAddr>
                     }
                 }
                 TransportEvent::ConnectionFailed { id } => {
-                    eprintln!("[{name}] Connection failed (id: {id})");
-                    panic!("[{name}] Connection failed unexpectedly");
+                    panic!("[{name}] Connection failed unexpectedly (id: {id})");
                 }
                 TransportEvent::Disconnected { id } => {
                     println!("[{name}] Peer disconnected (id: {id})");
                     connected_peers.remove(&id);
+                    if connected_peers.is_empty() {
+                        return;
+                    }
                 }
                 TransportEvent::Data { id, data } => {
                     // Accumulate data from this connection
@@ -132,16 +134,16 @@ fn run_peer(name: &str, mut transport: Transport, connect_addrs: Vec<SocketAddr>
 
                     // Check if we've received complete data from all connections
                     if received_data.len() == expected_connections {
-                        let all_complete = received_data
+                        let all_received = received_data
                             .values()
                             .all(|v| v.len() == expected_data_size);
 
-                        if all_complete {
+                        if all_received {
                             println!(
                                 "[{name}] All data received! Received {expected_data_size} bytes from {expected_connections} connections"
                             );
-                            return;
                         }
+                        transport.shutdown_all_connections(Shutdown::Read);
                     }
                 }
                 _ => {

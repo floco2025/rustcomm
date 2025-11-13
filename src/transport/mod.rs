@@ -16,7 +16,7 @@ use tls::TlsTransport;
 
 use crate::error::Error;
 use config::Config;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{Shutdown, SocketAddr, ToSocketAddrs};
 
 // Internal transport trait for network communication.
 //
@@ -30,62 +30,38 @@ trait TransportImpl: Send {
     // Connection Management
     // ============================================================================
 
-    // Initiates a connection to the specified address. We cannot use
-    // ToSocketAddrs like with Transport::connect, because this would make this
-    // function generic, and thereby not dyn-compatible.
+    // We cannot use ToSocketAddrs like with Transport::connect/listen, because this
+    // would make this function generic, and thereby not dyn-compatible.
     fn connect_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error>;
-
-    // Starts listening for incoming connections on the specified address. We
-    // cannot use ToSocketAddrs like with Transport::listen, because this would
-    // make this function generic, and thereby not dyn-compatible.
     fn listen_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error>;
 
-    // Gets the local socket addresses of all active listeners.
     fn get_listener_addresses(&self) -> Vec<SocketAddr>;
 
-    // Closes a connection by its ID.
     fn close_connection(&mut self, id: usize);
-
-    // Closes a listener by its ID.
+    fn shutdown_all_connections(&mut self, how: Shutdown);
     fn close_listener(&mut self, id: usize);
-
-    // Closes all connections and listeners.
     fn close_all(&mut self);
 
     // ============================================================================
     // Data Operations
     // ============================================================================
 
-    // Sends data to a specific connection.
     fn send_to(&mut self, id: usize, buf: Vec<u8>);
-
-    // Sends data to multiple specific connections.
     fn send_to_many(&mut self, ids: &[usize], buf: Vec<u8>);
-
-    // Broadcasts data to all connected clients.
     fn broadcast(&mut self, buf: Vec<u8>);
-
-    // Broadcasts data to all connected clients except one.
     fn broadcast_except(&mut self, buf: Vec<u8>, except_id: usize);
-
-    // Broadcasts data to all connected clients except multiple specified ones.
     fn broadcast_except_many(&mut self, buf: Vec<u8>, except_ids: &[usize]);
 
     // ============================================================================
     // Event Operations
     // ============================================================================
 
-    // Blocks until transport events are available and returns them.
-    //
-    // Only returns unrecoverable errors. Recoverable errors are handled by
-    // the returned events.
     fn fetch_events(&mut self) -> Result<Vec<TransportEvent>, Error>;
 
     // ============================================================================
     // Utilities
     // ============================================================================
 
-    // Gets a thread-safe interface for sending data from other threads.
     fn get_transport_interface(&self) -> TransportInterface;
 }
 
@@ -278,6 +254,15 @@ impl Transport {
     /// event.
     pub fn close_connection(&mut self, id: usize) {
         self.inner.close_connection(id)
+    }
+
+    /// Shuts down all connections.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
+    ///
+    pub fn shutdown_all_connections(&mut self, how: Shutdown) {
+        self.inner.shutdown_all_connections(how)
     }
 
     /// Closes a listener by its ID.
