@@ -38,8 +38,11 @@ trait TransportImpl: Send {
     fn get_listener_addresses(&self) -> Vec<SocketAddr>;
 
     fn close_connection(&mut self, id: usize);
+    fn close_all_connections(&mut self);
+    fn shutdown_connection(&mut self, id: usize, how: Shutdown);
     fn shutdown_all_connections(&mut self, how: Shutdown);
     fn close_listener(&mut self, id: usize);
+    fn close_all_listeners(&mut self);
     fn close_all(&mut self);
 
     // ============================================================================
@@ -256,11 +259,31 @@ impl Transport {
         self.inner.close_connection(id)
     }
 
-    /// Shuts down all connections.
+    /// Closes all connections.
     ///
     /// **Not thread-safe.** For multi-threaded use, call this method on
     /// [`TransportInterface`] instead.
     ///
+    /// **Note:** This does not trigger [`TransportEvent::Disconnected`] events.
+    pub fn close_all_connections(&mut self) {
+        self.inner.close_all_connections()
+    }
+
+    /// Shuts down a connection by its ID.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
+    ///
+    /// Ignores non-existent connection ids, because the connection might have
+    /// been closed already internally.
+    pub fn shutdown_connection(&mut self, id: usize, how: Shutdown) {
+        self.inner.shutdown_connection(id, how)
+    }
+
+    /// Shuts down all connections.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
     pub fn shutdown_all_connections(&mut self, how: Shutdown) {
         self.inner.shutdown_all_connections(how)
     }
@@ -274,6 +297,14 @@ impl Transport {
     /// closed already internally.
     pub fn close_listener(&mut self, id: usize) {
         self.inner.close_listener(id)
+    }
+
+    /// Closes all listeners.
+    ///
+    /// **Not thread-safe.** For multi-threaded use, call this method on
+    /// [`TransportInterface`] instead.
+    pub fn close_all_listeners(&mut self) {
+        self.inner.close_all_listeners()
     }
 
     /// Closes all connections and listeners.

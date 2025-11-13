@@ -212,6 +212,42 @@ impl TcpTransport {
         }
     }
 
+    /// Closes all connections.
+    #[instrument(skip(self))]
+    pub fn close_all_connections(&mut self) {
+        for (id, mut connection) in self.connections.drain() {
+            self.poll
+                .registry()
+                .deregister(&mut connection.stream)
+                .expect("Failed to deregister connection");
+            let local_addr = &connection.local_addr;
+            let peer_addr = &connection.peer_addr;
+            info!(id, %local_addr, %peer_addr, "Closed connection");
+        }
+    }
+
+    /// Shuts down a connection by its ID.
+    #[instrument(skip(self))]
+    pub fn shutdown_connection(&mut self, id: usize, how: Shutdown) {
+        match self.connections.get(&id) {
+            Some(connection) => {
+                let local_addr = &connection.local_addr;
+                let peer_addr = &connection.peer_addr;
+                match connection.stream.shutdown(how) {
+                    Ok(_) => {
+                        info!(id, how = ?how, %local_addr, %peer_addr, "Shut down connection");
+                    }
+                    Err(err) => {
+                        warn!(id, how = ?how, %local_addr, %peer_addr, ?err, "Error shutting down connection");
+                    }
+                }
+            }
+            None => {
+                warn!(id, "Connection not found when shutting down connection");
+            }
+        }
+    }
+
     /// Shuts down all connections.
     #[instrument(skip(self))]
     pub fn shutdown_all_connections(&mut self, how: Shutdown) {
@@ -247,19 +283,9 @@ impl TcpTransport {
         }
     }
 
-    /// Closes all listeners and connections.
+    /// Closes all listeners.
     #[instrument(skip(self))]
-    pub fn close_all(&mut self) {
-        for (id, mut connection) in self.connections.drain() {
-            self.poll
-                .registry()
-                .deregister(&mut connection.stream)
-                .expect("Failed to deregister connection");
-            let local_addr = &connection.local_addr;
-            let peer_addr = &connection.peer_addr;
-            info!(id, %local_addr, %peer_addr, "Closed connection");
-        }
-
+    pub fn close_all_listeners(&mut self) {
         for (id, mut listener) in self.listeners.drain() {
             self.poll
                 .registry()
@@ -268,6 +294,13 @@ impl TcpTransport {
             let local_addr = listener.local_addr().expect("Failed to get local address");
             info!(id, %local_addr, "Closed listener");
         }
+    }
+
+    /// Closes all listeners and connections.
+    #[instrument(skip(self))]
+    pub fn close_all(&mut self) {
+        self.close_all_listeners();
+        self.close_all_connections();
     }
 }
 
@@ -489,7 +522,11 @@ impl TcpTransport {
                     }
                 }
                 SendRequest::CloseConnection { id } => self.close_connection(id),
+                SendRequest::CloseAllConnections => self.close_all_connections(),
+                SendRequest::ShutdownConnection { id, how } => self.shutdown_connection(id, how),
+                SendRequest::ShutdownAllConnections { how } => self.shutdown_all_connections(how),
                 SendRequest::CloseListener { id } => self.close_listener(id),
+                SendRequest::CloseAllListeners => self.close_all_listeners(),
                 SendRequest::CloseAll => self.close_all(),
                 SendRequest::SendTo { id, data } => self.send_to(id, data),
                 SendRequest::SendToMany { ids, data } => self.send_to_many(&ids, data),
@@ -845,12 +882,24 @@ impl TransportImpl for TcpTransport {
         self.close_connection(id)
     }
 
+    fn close_all_connections(&mut self) {
+        self.close_all_connections()
+    }
+
+    fn shutdown_connection(&mut self, id: usize, how: Shutdown) {
+        self.shutdown_connection(id, how)
+    }
+
     fn shutdown_all_connections(&mut self, how: Shutdown) {
         self.shutdown_all_connections(how)
     }
 
     fn close_listener(&mut self, id: usize) {
         self.close_listener(id)
+    }
+
+    fn close_all_listeners(&mut self) {
+        self.close_all_listeners()
     }
 
     fn close_all(&mut self) {

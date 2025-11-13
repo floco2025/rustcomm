@@ -1,6 +1,6 @@
 use crate::Error;
 use mio::Waker;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{Shutdown, SocketAddr, ToSocketAddrs};
 use std::sync::{
     mpsc::{channel, Sender},
     Arc,
@@ -10,7 +10,6 @@ use std::sync::{
 #[derive(Debug)]
 pub(crate) enum SendRequest {
     // Connection Management
-    
     Connect {
         addr: SocketAddr,
         response: Sender<Result<(usize, SocketAddr), Error>>,
@@ -25,13 +24,21 @@ pub(crate) enum SendRequest {
     CloseConnection {
         id: usize,
     },
+    CloseAllConnections,
+    ShutdownConnection {
+        id: usize,
+        how: Shutdown,
+    },
+    ShutdownAllConnections {
+        how: Shutdown,
+    },
     CloseListener {
         id: usize,
     },
+    CloseAllListeners,
     CloseAll,
 
     // Data Operations
-
     SendTo {
         id: usize,
         data: Vec<u8>,
@@ -150,6 +157,50 @@ impl TransportInterface {
         self.waker.wake().expect("Failed to wake event loop");
     }
 
+    /// Queues all connections to be closed.
+    ///
+    /// This is thread-safe and non-blocking. All connections will be closed when
+    /// the Transport's event loop processes the request.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// `Transport::close_all_connections()` directly for better performance.
+    ///
+    /// **Note:** This does not trigger `TransportEvent::Disconnected` events.
+    pub fn close_all_connections(&self) {
+        self.sender
+            .send(SendRequest::CloseAllConnections)
+            .expect("Failed to send request to event loop");
+        self.waker.wake().expect("Failed to wake event loop");
+    }
+
+    /// Queues a connection to be shut down.
+    ///
+    /// This is thread-safe and non-blocking. The connection will be shut down when
+    /// the Transport's event loop processes the request.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// `Transport::shutdown_connection()` directly for better performance.
+    pub fn shutdown_connection(&self, id: usize, how: Shutdown) {
+        self.sender
+            .send(SendRequest::ShutdownConnection { id, how })
+            .expect("Failed to send request to event loop");
+        self.waker.wake().expect("Failed to wake event loop");
+    }
+
+    /// Queues all connections to be shut down.
+    ///
+    /// This is thread-safe and non-blocking. All connections will be shut down when
+    /// the Transport's event loop processes the request.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// `Transport::shutdown_all_connections()` directly for better performance.
+    pub fn shutdown_all_connections(&self, how: Shutdown) {
+        self.sender
+            .send(SendRequest::ShutdownAllConnections { how })
+            .expect("Failed to send request to event loop");
+        self.waker.wake().expect("Failed to wake event loop");
+    }
+
     /// Queues a listener to be closed.
     ///
     /// This is thread-safe and non-blocking. The listener will be closed when
@@ -160,6 +211,20 @@ impl TransportInterface {
     pub fn close_listener(&self, id: usize) {
         self.sender
             .send(SendRequest::CloseListener { id })
+            .expect("Failed to send request to event loop");
+        self.waker.wake().expect("Failed to wake event loop");
+    }
+
+    /// Queues all listeners to be closed.
+    ///
+    /// This is thread-safe and non-blocking. All listeners will be closed when
+    /// the Transport's event loop processes the request.
+    ///
+    /// **Note:** If thread-safety is not required, call
+    /// `Transport::close_all_listeners()` directly for better performance.
+    pub fn close_all_listeners(&self) {
+        self.sender
+            .send(SendRequest::CloseAllListeners)
             .expect("Failed to send request to event loop");
         self.waker.wake().expect("Failed to wake event loop");
     }
