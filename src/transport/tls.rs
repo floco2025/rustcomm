@@ -146,11 +146,10 @@ pub(super) struct TlsTransport {
 impl TlsTransport {
     /// Creates a new named TlsTransport instance with configuration namespacing.
     pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
-        let max_read_size = get_namespaced_usize(config, name, "max_read_size")
-            .unwrap_or(1024 * 1024);
+        let max_read_size =
+            get_namespaced_usize(config, name, "max_read_size").unwrap_or(1024 * 1024);
 
-        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity")
-            .unwrap_or(256);
+        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity").unwrap_or(256);
 
         const MAX_SPURIOUS_WAKEUPS: u32 = 10;
 
@@ -158,21 +157,19 @@ impl TlsTransport {
         let tls_server_config = if let (Ok(cert_path), Ok(key_path)) = (
             get_namespaced_string(config, name, "tls_server_cert"),
             get_namespaced_string(config, name, "tls_server_key"),
-        )
-        {
+        ) {
             Some(Arc::new(load_tls_server_config(&cert_path, &key_path)?))
         } else {
             None
         };
 
         // Load TLS client config from CA cert path if provided
-        let tls_client_config = if let Ok(ca_cert_path) =
-            get_namespaced_string(config, name, "tls_ca_cert")
-        {
-            Some(Arc::new(load_tls_client_config(&ca_cert_path)?))
-        } else {
-            None
-        };
+        let tls_client_config =
+            if let Ok(ca_cert_path) = get_namespaced_string(config, name, "tls_ca_cert") {
+                Some(Arc::new(load_tls_client_config(&ca_cert_path)?))
+            } else {
+                None
+            };
 
         // Optional override for the TLS server name/SNI used during connect
         let tls_server_name = match get_namespaced_string(config, name, "tls_server_name") {
@@ -714,7 +711,7 @@ impl TlsTransport {
                         self.listeners.remove(&id);
                         return Err(err.into());
                     }
-                }
+                },
             }
         }
 

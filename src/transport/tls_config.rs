@@ -46,7 +46,9 @@ pub(crate) fn load_tls_client_config(ca_cert_path: &str) -> Result<ClientConfig,
     })?;
     let ca_certs: Vec<CertificateDer> = certs(&mut BufReader::new(ca_cert_file))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| Error::TlsInvalidCertificate(format!("Failed to parse CA certificates: {e}")))?;
+        .map_err(|e| {
+            Error::TlsInvalidCertificate(format!("Failed to parse CA certificates: {e}"))
+        })?;
 
     if ca_certs.is_empty() {
         return Err(Error::TlsInvalidCertificate(

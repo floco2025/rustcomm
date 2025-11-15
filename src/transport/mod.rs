@@ -162,8 +162,8 @@ impl Transport {
     /// tls_server_cert = "/path/to/cert.pem"
     /// ```
     pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
-        let transport_type =
-            get_namespaced_string(config, name, "transport_type").unwrap_or_else(|_| "tcp".to_string());
+        let transport_type = get_namespaced_string(config, name, "transport_type")
+            .unwrap_or_else(|_| "tcp".to_string());
 
         let inner: Box<dyn TransportImpl> = match transport_type.as_str() {
             "tcp" => Box::new(TcpTransport::new_named(config, name)?),

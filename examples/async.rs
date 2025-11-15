@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates rustcomm's built-in async RPC system. Uses
 //! futures::executor - no tokio required!
-//! 
+//!
 //! WORK IN PROGRESS. This is very basic now, but it will change significantly.
 
 use bincode::{Decode, Encode};
@@ -10,8 +10,8 @@ use config::Config;
 use futures::executor::block_on;
 use futures::join;
 use rustcomm::{
-    impl_message, register_bincode_message, MessageRegistry, Messenger, MessengerEvent,
-    RpcContext, RpcMessenger,
+    impl_message, register_bincode_message, MessageRegistry, Messenger, MessengerEvent, RpcContext,
+    RpcMessenger,
 };
 use std::net::SocketAddr;
 use std::thread;
@@ -44,47 +44,55 @@ impl_message!(GreetResponse);
 
 /// Server handles requests and sends responses
 fn run_server(config: &Config, registry: &MessageRegistry) -> SocketAddr {
-    let transport = rustcomm::transport::Transport::new(config).expect("Failed to create transport");
-    let mut messenger = Messenger::<RpcContext>::new_named_with_context(transport, config, registry, "")
-        .expect("Failed to create messenger");
+    let transport =
+        rustcomm::transport::Transport::new(config).expect("Failed to create transport");
+    let mut messenger =
+        Messenger::<RpcContext>::new_named_with_context(transport, config, registry, "")
+            .expect("Failed to create messenger");
     let (_listener_id, listener_addr) = messenger.listen("127.0.0.1:0").expect("Failed to listen");
 
-    thread::spawn(move || {
-        loop {
-            let events = messenger.fetch_events().expect("Failed to fetch events");
-            for event in events {
-                match event {
-                    MessengerEvent::Message { id, msg, ctx } => {
-                        match (ctx.service.as_str(), ctx.method.as_str()) {
-                            ("MathService", "Add") => {
-                                if let Some(req) = msg.downcast_ref::<CalculateRequest>() {
-                                    let resp = CalculateResponse { result: req.a + req.b };
-                                    messenger.send_to_with_context(id, &resp, &ctx);
-                                }
+    thread::spawn(move || loop {
+        let events = messenger.fetch_events().expect("Failed to fetch events");
+        for event in events {
+            match event {
+                MessengerEvent::Message { id, msg, ctx } => {
+                    match (ctx.service.as_str(), ctx.method.as_str()) {
+                        ("MathService", "Add") => {
+                            if let Some(req) = msg.downcast_ref::<CalculateRequest>() {
+                                let resp = CalculateResponse {
+                                    result: req.a + req.b,
+                                };
+                                messenger.send_to_with_context(id, &resp, &ctx);
                             }
-                            ("MathService", "Multiply") => {
-                                if let Some(req) = msg.downcast_ref::<CalculateRequest>() {
-                                    let resp = CalculateResponse { result: req.a * req.b };
-                                    messenger.send_to_with_context(id, &resp, &ctx);
-                                }
-                            }
-                            ("GreetService", "SayHello") => {
-                                if let Some(req) = msg.downcast_ref::<GreetRequest>() {
-                                    let resp = GreetResponse { message: format!("Hello, {}!", req.name) };
-                                    messenger.send_to_with_context(id, &resp, &ctx);
-                                }
-                            }
-                            ("GreetService", "SayGoodbye") => {
-                                if let Some(req) = msg.downcast_ref::<GreetRequest>() {
-                                    let resp = GreetResponse { message: format!("Goodbye, {}!", req.name) };
-                                    messenger.send_to_with_context(id, &resp, &ctx);
-                                }
-                            }
-                            _ => {}
                         }
+                        ("MathService", "Multiply") => {
+                            if let Some(req) = msg.downcast_ref::<CalculateRequest>() {
+                                let resp = CalculateResponse {
+                                    result: req.a * req.b,
+                                };
+                                messenger.send_to_with_context(id, &resp, &ctx);
+                            }
+                        }
+                        ("GreetService", "SayHello") => {
+                            if let Some(req) = msg.downcast_ref::<GreetRequest>() {
+                                let resp = GreetResponse {
+                                    message: format!("Hello, {}!", req.name),
+                                };
+                                messenger.send_to_with_context(id, &resp, &ctx);
+                            }
+                        }
+                        ("GreetService", "SayGoodbye") => {
+                            if let Some(req) = msg.downcast_ref::<GreetRequest>() {
+                                let resp = GreetResponse {
+                                    message: format!("Goodbye, {}!", req.name),
+                                };
+                                messenger.send_to_with_context(id, &resp, &ctx);
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
     });
@@ -131,13 +139,17 @@ fn main() {
                 server_id,
                 "GreetService",
                 "SayHello",
-                Box::new(GreetRequest { name: "Alice".to_string() })
+                Box::new(GreetRequest {
+                    name: "Alice".to_string()
+                })
             ),
             rpc.send_request::<GreetResponse>(
                 server_id,
                 "GreetService",
                 "SayGoodbye",
-                Box::new(GreetRequest { name: "Bob".to_string() })
+                Box::new(GreetRequest {
+                    name: "Bob".to_string()
+                })
             ),
         )
     });

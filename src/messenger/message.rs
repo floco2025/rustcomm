@@ -221,10 +221,11 @@ pub(super) fn deserialize_message<C: Context>(
     let remaining_payload = &payload[ctx_bytes..];
 
     // Read message ID length prefix
-    let msg_id_len_bytes: [u8; 4] = match remaining_payload.get(0..4).and_then(|s| s.try_into().ok()) {
-        Some(bytes) => bytes,
-        None => return Ok(None),
-    };
+    let msg_id_len_bytes: [u8; 4] =
+        match remaining_payload.get(0..4).and_then(|s| s.try_into().ok()) {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
     let msg_id_len = u32::from_le_bytes(msg_id_len_bytes) as usize;
 
     if remaining_payload.len() < 4 + msg_id_len {

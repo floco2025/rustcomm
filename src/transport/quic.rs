@@ -103,8 +103,7 @@ pub(super) struct QuicTransport {
 
 impl QuicTransport {
     pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
-        let poll_capacity = get_namespaced_usize(config, name, "quic_poll_capacity")
-            .unwrap_or(256);
+        let poll_capacity = get_namespaced_usize(config, name, "quic_poll_capacity").unwrap_or(256);
 
         let poll = Poll::new()?;
         let waker = Arc::new(Waker::new(poll.registry(), Token(WAKE_ID))?);
@@ -119,13 +118,12 @@ impl QuicTransport {
             None
         };
 
-        let client_config = if let Ok(ca_cert_path) =
-            get_namespaced_string(config, name, "tls_ca_cert")
-        {
-            Some(build_quic_client_config(&ca_cert_path)?)
-        } else {
-            None
-        };
+        let client_config =
+            if let Ok(ca_cert_path) = get_namespaced_string(config, name, "tls_ca_cert") {
+                Some(build_quic_client_config(&ca_cert_path)?)
+            } else {
+                None
+            };
 
         Ok(Self {
             connections: HashMap::new(),
@@ -906,10 +904,7 @@ fn normalize_addr(addr: SocketAddr) -> SocketAddr {
     }
 }
 
-fn build_quic_server_config(
-    cert_path: &str,
-    key_path: &str,
-) -> Result<Arc<ServerConfig>, Error> {
+fn build_quic_server_config(cert_path: &str, key_path: &str) -> Result<Arc<ServerConfig>, Error> {
     let mut rustls_server = load_tls_server_config(cert_path, key_path)?;
     rustls_server.max_early_data_size = u32::MAX;
     rustls_server.alpn_protocols = vec![b"rustcomm".to_vec()];

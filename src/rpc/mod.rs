@@ -56,8 +56,7 @@ impl Context for RpcContext {
         buf.extend(method_bytes);
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), crate::Error>
-    {
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), crate::Error> {
         let mut pos = 0;
 
         // Deserialize request_id
