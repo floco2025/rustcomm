@@ -1,24 +1,28 @@
 # RustComm
 
 A lightweight, high-performance communication library built on
-[mio](https://docs.rs/mio) with TCP and TLS transport support.
+[mio](https://docs.rs/mio) with built-in TCP, TLS, and QUIC transport support.
 
 - **Three-layer architecture:**
-  - **Transport:** Low-level API for raw bytes over TCP/TLS
+  - **Transport:** Low-level API for raw bytes over TCP/TLS/QUIC
   - **Messenger:** Type-safe serialized messages with any serialization format
   - **RpcMessenger:** Async RPC with request-response correlation (optional `rpc` feature)
 - **Peer-to-peer:** No fixed server/client roles - any peer can listen, connect,
   send, and receive
-- **Easily extensible:** Add custom transports beyond TCP/TLS, such as QUIC
+- **Easily extensible:** Ships with TCP/TLS/QUIC and stays extensible for additional transports
 - **Flexible threading:** Works in single-threaded event loops or multi-threaded
   architectures like thread pools
+
+**Optional features (enabled by default):** `tls`, `quic`, `rpc`, and `bincode`.
+Disable them in `Cargo.toml` if you need a smaller footprint.
 
 ## Architecture
 
 RustComm provides three layers you can choose from based on your needs:
 
 ### 1. Transport Layer (Raw Bytes)
-The lowest level - send and receive raw bytes over TCP or TLS connections.
+The lowest level - send and receive raw bytes over TCP, TLS, or QUIC
+connections.
 - Direct control over data format
 - Minimal overhead
 - You handle framing and serialization

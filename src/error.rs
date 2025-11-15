@@ -42,8 +42,8 @@ pub enum Error {
 
     /// Received a message with an ID that hasn't been registered.
     ///
-    /// Make sure all message types are registered in the [`crate::MessageRegistry`]
-    /// before deserializing.
+    /// Make sure all message types are registered in the
+    /// [`crate::MessageRegistry`] before deserializing.
     #[error("Unknown message ID: {0}")]
     UnknownMessageId(String),
 
@@ -108,7 +108,8 @@ pub enum Error {
 
     /// Invalid value for `transport_type` configuration key.
     ///
-    /// Must be one of: "tcp" or "tls" (when TLS feature is enabled).
+    /// Must be one of the supported transports for this build (e.g., "tcp",
+    /// "tls", or "quic").
     #[error("Invalid transport type '{got}', expected one of: {}", .valid.join(", "))]
     InvalidTransportType { got: String, valid: Vec<String> },
 }

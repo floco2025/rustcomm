@@ -1,7 +1,7 @@
 //! Transport layer for abstracting over different transport implementations.
 //!
-//! This module provides the [`Transport`] struct which selects between TCP and
-//! TLS transports based on configuration.
+//! This module provides the [`Transport`] struct which selects between TCP,
+//! TLS, or QUIC transports based on configuration.
 
 mod interface;
 #[cfg(feature = "quic")]
@@ -27,11 +27,12 @@ use std::net::{Shutdown, SocketAddr, ToSocketAddrs};
 
 // Internal transport trait for network communication.
 //
-// This trait abstracts over different transport implementations (TCP, TLS, etc.)
-// providing a common interface for connection management, data transmission,
-// and event handling.
+// This trait abstracts over different transport implementations (TCP, TLS,
+// etc.) providing a common interface for connection management, data
+// transmission, and event handling.
 //
-// Note: This trait is internal. Users should use the `Transport` struct instead.
+// Note: This trait is internal. Users should use the `Transport` struct
+// instead.
 trait TransportImpl: Send {
     // ============================================================================
     // Connection Management
@@ -82,7 +83,7 @@ trait TransportImpl: Send {
 ///
 /// # Configuration Keys
 ///
-/// - `transport_type`: Either "tcp" or "tls" (defaults to "tcp")
+/// - `transport_type`: "tcp", "tls", or "quic" (defaults to "tcp")
 /// - Transport-specific keys (e.g., `max_read_size` for TCP, `tls_server_cert` for TLS)
 ///
 /// # Example
@@ -122,16 +123,16 @@ impl Transport {
     /// Creates a new Transport based on configuration.
     ///
     /// Reads the `transport_type` configuration key to determine whether to create
-    /// a TCP or TLS transport. Defaults to "tcp" if not specified.
+    /// a TCP, TLS, or QUIC transport. Defaults to "tcp" if not specified.
     ///
     /// # Configuration Keys
     ///
-    /// - `transport_type`: Either "tcp" or "tls"
+    /// - `transport_type`: "tcp", "tls", or "quic"
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - `transport_type` is invalid (not "tcp" or "tls")
+    /// - `transport_type` is invalid (not one of the supported variants)
     /// - The underlying transport creation fails
     pub fn new(config: &Config) -> Result<Self, Error> {
         Self::new_named(config, "")
@@ -146,7 +147,7 @@ impl Transport {
     ///
     /// # Configuration Keys
     ///
-    /// - `transport_type`: Either "tcp" or "tls"
+    /// - `transport_type`: "tcp", "tls", or "quic"
     /// - Transport-specific keys (e.g., `max_read_size` for TCP,
     ///   `tls_server_cert` for TLS)
     ///

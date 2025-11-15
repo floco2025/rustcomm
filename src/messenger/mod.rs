@@ -26,7 +26,7 @@ use tracing::{debug, error, instrument, warn};
 /// Wraps a transport layer and adds message serialization/deserialization. Not
 /// thread-safe - use [`MessengerInterface`] for cross-thread communication.
 ///
-/// The transport type (TCP or TLS) is automatically selected based on
+/// The transport type (TCP, TLS, or QUIC) is automatically selected based on
 /// configuration.
 pub struct Messenger<C: Context = EmptyContext> {
     transport: Transport,
@@ -66,12 +66,9 @@ pub enum MessengerEvent<C: Context = EmptyContext> {
 impl Messenger {
     /// Creates a new Messenger instance based on configuration.
     ///
-    /// The transport type (TCP or TLS) is automatically selected based on the
-    /// `transport_type` configuration key. Defaults to "tcp" if not specified.
-    ///
     /// # Configuration Keys
     ///
-    /// - `transport_type`: Either "tcp" or "tls" (defaults to "tcp")
+    /// - `transport_type`: "tcp", "tls", or "quic" (defaults to "tcp")
     /// - Plus all keys for the specific transport type
     pub fn new(config: &Config, registry: &MessageRegistry) -> Result<Self, Error> {
         Self::new_named(config, registry, "")
@@ -79,30 +76,10 @@ impl Messenger {
 
     /// Creates a new named Messenger instance with configuration namespacing.
     ///
-    /// Configuration lookup follows this priority:
-    /// 1. `{name}.{key}` (e.g., `game_server.transport_type`)
-    /// 2. `{key}` (e.g., `transport_type`)
-    /// 3. Hard-coded default
-    ///
-    /// This allows different messenger instances to have different
-    /// configurations.
-    ///
     /// # Configuration Keys
     ///
-    /// - `transport_type`: Either "tcp" or "tls"
+    /// - `transport_type`: "tcp", "tls", or "quic" (defaults to "tcp")
     /// - Plus all keys for the specific transport type
-    ///
-    /// # Example
-    ///
-    /// ```toml
-    /// # Global defaults
-    /// transport_type = "tcp"
-    ///
-    /// # Specific to "api_server" instance
-    /// [api_server]
-    /// transport_type = "tls"
-    /// tls_server_cert = "/path/to/cert.pem"
-    /// ```
     pub fn new_named(
         config: &Config,
         registry: &MessageRegistry,

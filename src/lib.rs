@@ -1,15 +1,17 @@
 //! A lightweight, high-performance communication library built on
-//! [mio](https://docs.rs/mio) with TCP and TLS transport support.
+//! [mio](https://docs.rs/mio) with built-in TCP, TLS, and QUIC transport
+//! support.
 //!
 //! - **Dual-layer architecture:** Low-level [`Transport`] API for raw bytes, or
 //!   higher-level [`Messenger`] API for type-safe serialized messages
-//! - **Peer-to-peer:** No fixed server/client roles - any peer can listen, connect,
-//!   send, and receive
+//! - **Peer-to-peer:** No fixed server/client roles - any peer can listen,
+//!   connect, send, and receive
 //! - **Serialization-agnostic:** Bring your own serialization (bincode, serde,
 //!   hand-written, etc.) - includes optional bincode helpers
-//! - **Easily extensible:** Add custom transports beyond TCP/TLS, such as QUIC.
-//! - **Flexible threading:** Works in single-threaded event loops or multi-threaded
-//!   architectures like thread pools
+//! - **Easily extensible:** Ships with TCP/TLS/QUIC and leaves room for custom
+//!   transports.
+//! - **Flexible threading:** Works in single-threaded event loops or
+//!   multi-threaded architectures like thread pools
 //!
 //! # Quick Start
 //!
@@ -110,9 +112,9 @@
 //!
 //! # Configuration
 //!
-//! RustComm is configured through the [`config`](https://docs.rs/config/) crate.
-//! You can use configuration files (TOML, YAML), environment variables, or build
-//! configs programmatically.
+//! RustComm is configured through the [`config`](https://docs.rs/config/)
+//! crate. You can use configuration files (TOML, YAML), environment variables,
+//! or build configs programmatically.
 //!
 //! ## Configuration Keys
 //!
@@ -120,7 +122,7 @@
 //!
 //! | Key | Description |
 //! |-----|-------------|
-//! | `transport_type` | Transport protocol: `"tcp"` or `"tls"` (defaults to `"tcp"`) |
+//! | `transport_type` | Transport protocol: `"tcp"`, `"tls"`, or `"quic"` (defaults to `"tcp"`) |
 //! | `poll_capacity` | Event polling capacity for mio (default: 256) |
 //!
 //! ### TCP Configuration
@@ -129,9 +131,12 @@
 //! |-----|-------------|
 //! | `max_read_size` | Maximum bytes per socket read call |
 //!
-//! ### TLS Configuration
+//! ### TLS / QUIC Security Configuration
 //!
-//! **Required** (when `transport_type = "tls"`):
+//! TLS and QUIC transports share their certificate material. Provide these keys
+//! whenever `transport_type` is set to `"tls"` or `"quic"`.
+//!
+//! **Required:**
 //!
 //! | Key | Description |
 //! |-----|-------------|
@@ -139,7 +144,7 @@
 //! | `tls_server_key` | Path to server private key (PEM format) - required for `listen()` |
 //! | `tls_ca_cert` | Path to CA certificate (PEM format) - required for `connect()` |
 //!
-//! **Optional:**
+//! **Optional (TLS-specific):**
 //!
 //! | Key | Description |
 //! |-----|-------------|
@@ -182,6 +187,14 @@
 //! tls_server_cert = "/path/to/auth.crt"
 //! tls_server_key = "/path/to/auth.key"
 //! tls_ca_cert = "/path/to/ca.crt"
+//!
+//! # Reuse TLS material for QUIC
+//! [edge_quic]
+//! transport_type = "quic"
+//! tls_server_cert = "/path/to/edge.crt"
+//! tls_server_key = "/path/to/edge.key"
+//! tls_ca_cert = "/path/to/ca.crt"
+//! poll_capacity = 512
 //! ```
 //!
 //! Use with:
@@ -215,7 +228,7 @@
 //! ```no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = config::Config::builder()
-//!     .set_default("transport_type", "tls")?
+//!     .set_default("transport_type", "quic")?
 //!     .set_default("tls_ca_cert", "/path/to/ca.crt")?
 //!     .build()?;
 //! # Ok(())
