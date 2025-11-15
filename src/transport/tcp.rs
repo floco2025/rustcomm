@@ -59,13 +59,13 @@ pub(super) struct TcpTransport {
     listeners: HashMap<usize, TcpListener>,
     next_id: usize,
     poll: Poll,
+    poll_capacity: usize,
     waker: Arc<Waker>,
     sender: Sender<SendRequest>,
     receiver: Receiver<SendRequest>,
     spurious_wakeups: usize,
     max_read_size: usize,
     max_spurious_wakeups: u32,
-    poll_capacity: usize,
 }
 
 // ============================================================================
@@ -104,13 +104,13 @@ impl TcpTransport {
             listeners: HashMap::new(),
             next_id: CONNECTION_ID_RANGE_START,
             poll,
+            poll_capacity,
             waker,
             sender,
             receiver,
             spurious_wakeups: 0,
             max_read_size,
             max_spurious_wakeups: MAX_SPURIOUS_WAKEUPS,
-            poll_capacity,
         })
     }
 }

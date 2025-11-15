@@ -13,7 +13,8 @@ use mio::{Events, Interest, Poll, Token, Waker};
 use quinn_proto::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn_proto::{
     AcceptError, ClientConfig, Connection, ConnectionHandle, DatagramEvent, Dir, Endpoint,
-    EndpointConfig, Event, Incoming, ServerConfig, StreamEvent, TransportConfig, VarInt, WriteError,
+    EndpointConfig, Event, Incoming, ServerConfig, StreamEvent, TransportConfig, VarInt,
+    WriteError,
 };
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
@@ -83,21 +84,21 @@ impl QuicConnection {
 /// QUIC transport driven by mio.
 #[derive(Debug)]
 pub(super) struct QuicTransport {
+    connections: HashMap<usize, QuicConnection>,
+    handle_map: HashMap<ConnectionHandle, usize>,
+    listeners: HashMap<usize, SocketAddr>,
+    next_id: usize,
     poll: Poll,
+    poll_capacity: usize,
     waker: Arc<Waker>,
     sender: Sender<SendRequest>,
     receiver: Receiver<SendRequest>,
     socket: Option<UdpSocket>,
     endpoint: Option<Endpoint>,
-    connections: HashMap<usize, QuicConnection>,
-    handle_map: HashMap<ConnectionHandle, usize>,
-    listeners: HashMap<usize, SocketAddr>,
-    next_id: usize,
     recv_buffer: Vec<u8>,
     send_buffer: Vec<u8>,
     client_config: ClientConfig,
     server_config: Option<Arc<ServerConfig>>,
-    poll_capacity: usize,
 }
 
 impl QuicTransport {
@@ -118,21 +119,21 @@ impl QuicTransport {
         let client_config = ClientConfig::new(Arc::new(build_insecure_client_crypto()));
 
         Ok(Self {
+            connections: HashMap::new(),
+            handle_map: HashMap::new(),
+            listeners: HashMap::new(),
+            next_id: CONNECTION_ID_RANGE_START,
             poll,
+            poll_capacity,
             waker,
             sender,
             receiver,
             socket: None,
             endpoint: None,
-            connections: HashMap::new(),
-            handle_map: HashMap::new(),
-            listeners: HashMap::new(),
-            next_id: CONNECTION_ID_RANGE_START,
             recv_buffer: vec![0u8; MAX_UDP_PAYLOAD],
             send_buffer: Vec::with_capacity(MAX_UDP_PAYLOAD),
             client_config,
             server_config: None,
-            poll_capacity,
         })
     }
 }
@@ -278,7 +279,8 @@ impl QuicTransport {
             if how == Shutdown::Both {
                 debug!(id, "Initiating graceful QUIC full shutdown");
                 let now = Instant::now();
-                conn.connection.close(now, VarInt::from_u32(0), Bytes::new());
+                conn.connection
+                    .close(now, VarInt::from_u32(0), Bytes::new());
             } else {
                 debug!(id, read, write, "Requesting QUIC half-shutdown");
                 Self::apply_stream_shutdowns(id, conn);
