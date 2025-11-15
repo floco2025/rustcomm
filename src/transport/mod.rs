@@ -4,12 +4,16 @@
 //! TLS transports based on configuration.
 
 mod interface;
+#[cfg(feature = "quic")]
+mod quic;
 mod tcp;
 #[cfg(feature = "tls")]
 mod tls;
 
 use interface::SendRequest;
 pub use interface::TransportInterface;
+#[cfg(feature = "quic")]
+use quic::QuicTransport;
 use tcp::TcpTransport;
 #[cfg(feature = "tls")]
 use tls::TlsTransport;
@@ -68,10 +72,10 @@ trait TransportImpl: Send {
     fn get_transport_interface(&self) -> TransportInterface;
 }
 
-/// Dynamic transport that wraps either TCP or TLS transport based on configuration.
+/// Dynamic transport that wraps TCP, TLS, or QUIC transports based on configuration.
 ///
 /// This is the main transport type users should interact with. The actual transport
-/// type (TCP or TLS) is selected based on the `transport_type` configuration key.
+/// type (TCP, TLS, or QUIC) is selected based on the `transport_type` configuration key.
 ///
 /// # Configuration Keys
 ///
@@ -170,11 +174,18 @@ impl Transport {
             "tcp" => Box::new(TcpTransport::new_named(config, name)?),
             #[cfg(feature = "tls")]
             "tls" => Box::new(TlsTransport::new_named(config, name)?),
+            #[cfg(feature = "quic")]
+            "quic" => Box::new(QuicTransport::new_named(config, name)?),
             _ => {
+                let mut valid = vec!["tcp".to_string()];
                 #[cfg(feature = "tls")]
-                let valid = vec!["tcp".to_string(), "tls".to_string()];
-                #[cfg(not(feature = "tls"))]
-                let valid = vec!["tcp".to_string()];
+                {
+                    valid.push("tls".to_string());
+                }
+                #[cfg(feature = "quic")]
+                {
+                    valid.push("quic".to_string());
+                }
 
                 return Err(Error::InvalidTransportType {
                     got: transport_type,

@@ -1,6 +1,6 @@
 use rustcomm::prelude::*;
 use std::collections::HashMap;
-use std::net::{Shutdown, SocketAddr};
+use std::net::SocketAddr;
 use std::thread;
 
 #[test]
@@ -26,6 +26,19 @@ fn transport_mesh_tls() {
         .set_default("tls_server_key", "tests/key.pem")
         .unwrap()
         .set_default("tls_ca_cert", "tests/cert.pem")
+        .unwrap()
+        .build()
+        .unwrap();
+    run_transport_mesh_test(config);
+}
+
+#[cfg(feature = "quic")]
+#[test]
+fn transport_mesh_quic() {
+    println!("=== P2P Mesh QUIC Transport Test ===\n");
+
+    let config = config::Config::builder()
+        .set_default("transport_type", "quic")
         .unwrap()
         .build()
         .unwrap();
@@ -142,8 +155,12 @@ fn run_peer(name: &str, mut transport: Transport, connect_addrs: Vec<SocketAddr>
                             println!(
                                 "[{name}] All data received! Received {expected_data_size} bytes from {expected_connections} connections"
                             );
+                            // TODO: Must be shutdown_all_connections without
+                            // the return being required once it is implemented
+                            // in QuicTransport.
+                            transport.close_all_connections();
+                            return;
                         }
-                        transport.shutdown_all_connections(Shutdown::Read);
                     }
                 }
                 _ => {

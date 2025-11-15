@@ -1,20 +1,3 @@
-//! Client/Server Integration Tests
-//!
-//! # Running with tracing
-//!
-//! Use TEST_LOG environment variable to control tracing verbosity (like -v, -vv, -vvv):
-//!
-//! ```bash
-//! # Info level (equivalent to -v)
-//! TEST_LOG=1 cargo test test_client_server_tls -- --nocapture
-//!
-//! # Debug level (equivalent to -vv)
-//! TEST_LOG=2 cargo test test_client_server_tls -- --nocapture
-//!
-//! # Trace level (equivalent to -vvv)
-//! TEST_LOG=3 cargo test test_client_server_tls -- --nocapture
-//! ```
-
 mod message_types;
 
 use message_types::*;
@@ -33,12 +16,11 @@ static INIT: Once = Once::new();
 
 /// Initialize tracing based on TEST_LOG environment variable
 ///
-/// Verbosity levels (like -v, -vv, -vvv):
 /// - TEST_LOG=1: Info level
 /// - TEST_LOG=2: Debug level  
 /// - TEST_LOG=3: Trace level
 ///
-/// Example: TEST_LOG=2 cargo test test_client_server_tls -- --nocapture
+/// Example: TEST_LOG=2 cargo test client_server_tls -- --nocapture
 fn init_tracing() {
     INIT.call_once(|| {
         if let Ok(level_str) = std::env::var("TEST_LOG") {
@@ -160,16 +142,22 @@ where
 // ============================================================================
 
 #[test]
-fn test_client_server_tcp() {
-    test_client_server("tcp");
+fn client_server_tcp() {
+    client_server("tcp");
 }
 
 #[test]
-fn test_client_server_tls() {
-    test_client_server("tls");
+fn client_server_tls() {
+    client_server("tls");
 }
 
-fn test_client_server(transport_type: &str) {
+#[cfg(feature = "quic")]
+#[test]
+fn client_server_quic() {
+    client_server("quic");
+}
+
+fn client_server(transport_type: &str) {
     // Initialize tracing (controlled by TEST_LOG environment variable)
     init_tracing();
 
@@ -187,10 +175,10 @@ fn test_client_server(transport_type: &str) {
     let client_messenger =
         Messenger::new(&config, &registry).expect("Failed to create client messenger");
 
-    test_client_server_with_messenger(client_messenger, local_addr);
+    client_server_with_messenger(client_messenger, local_addr);
 }
 
-fn test_client_server_with_messenger(mut messenger: Messenger, local_addr: SocketAddr) {
+fn client_server_with_messenger(mut messenger: Messenger, local_addr: SocketAddr) {
     let (server_id, _peer_addr) = messenger
         .connect(local_addr)
         .expect("Failed to connect to server");

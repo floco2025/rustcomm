@@ -21,26 +21,31 @@ fn run_example(name: &str) {
 }
 
 #[test]
-fn test_minimal_example() {
+fn minimal_example() {
     run_example("minimal");
 }
 
 #[test]
-fn test_minimal_transport_example() {
+fn minimal_transport_example() {
     run_example("minimal_transport");
 }
 
 #[test]
-fn test_p2p_mesh_example() {
+fn p2p_mesh_example() {
     run_example("p2p_mesh");
 }
 
 #[test]
-fn test_thread_pool_example() {
+fn thread_pool_example() {
     run_example("thread_pool");
 }
 
 #[test]
-fn test_custom_serialization_example() {
+fn custom_serialization_example() {
     run_example("custom_serialization");
+}
+
+#[test]
+fn async_example() {
+    run_example("async");
 }
