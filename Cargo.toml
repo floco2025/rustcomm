@@ -23,7 +23,6 @@ webpki-roots = { version = "0.26", optional = true }
 futures = { version = "0.3", optional = true }
 bytes = { version = "1", optional = true }
 quinn-proto = { version = "0.11", optional = true, default-features = false, features = ["rustls", "rustls-ring"] }
-rcgen = "0.13"
 
 [features]
 default = ["bincode", "tls", "rpc", "quic"]

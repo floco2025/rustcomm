@@ -41,6 +41,12 @@ fn transport_mesh_quic() {
     let config = config::Config::builder()
         .set_default("transport_type", "quic")
         .unwrap()
+        .set_default("tls_server_cert", "tests/cert.pem")
+        .unwrap()
+        .set_default("tls_server_key", "tests/key.pem")
+        .unwrap()
+        .set_default("tls_ca_cert", "tests/cert.pem")
+        .unwrap()
         .build()
         .unwrap();
     run_transport_mesh_test(config);

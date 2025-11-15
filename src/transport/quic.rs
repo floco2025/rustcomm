@@ -5,6 +5,7 @@
 //! the integration intentionally small by driving `quinn-proto` directly on top
 //! of a non-blocking UDP socket managed by `mio`.
 
+use super::tls_config::{load_tls_client_config, load_tls_server_config};
 use super::*;
 use crate::error::Error;
 use bytes::{Bytes, BytesMut};
@@ -16,9 +17,6 @@ use quinn_proto::{
     EndpointConfig, Event, Incoming, ServerConfig, StreamEvent, TransportConfig, VarInt,
     WriteError,
 };
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
-use rustls::{DigitallySignedStruct, SignatureScheme};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error as IoError, ErrorKind};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -97,7 +95,7 @@ pub(super) struct QuicTransport {
     endpoint: Option<Endpoint>,
     recv_buffer: Vec<u8>,
     send_buffer: Vec<u8>,
-    client_config: ClientConfig,
+    client_config: Option<ClientConfig>,
     server_config: Option<Arc<ServerConfig>>,
 }
 
@@ -116,7 +114,30 @@ impl QuicTransport {
         let waker = Arc::new(Waker::new(poll.registry(), Token(WAKE_ID))?);
         let (sender, receiver) = channel();
 
-        let client_config = ClientConfig::new(Arc::new(build_insecure_client_crypto()));
+        let get_string = |key: &str| -> Result<String, config::ConfigError> {
+            if name.is_empty() {
+                config.get_string(key)
+            } else {
+                config
+                    .get_string(&format!("{name}.{key}"))
+                    .or_else(|_| config.get_string(key))
+            }
+        };
+
+        let server_config = if let (Ok(cert_path), Ok(key_path)) = (
+            get_string("tls_server_cert"),
+            get_string("tls_server_key"),
+        ) {
+            Some(build_quic_server_config(&cert_path, &key_path)?)
+        } else {
+            None
+        };
+
+        let client_config = if let Ok(ca_cert_path) = get_string("tls_ca_cert") {
+            Some(build_quic_client_config(&ca_cert_path)?)
+        } else {
+            None
+        };
 
         Ok(Self {
             connections: HashMap::new(),
@@ -133,7 +154,7 @@ impl QuicTransport {
             recv_buffer: vec![0u8; MAX_UDP_PAYLOAD],
             send_buffer: Vec::with_capacity(MAX_UDP_PAYLOAD),
             client_config,
-            server_config: None,
+            server_config,
         })
     }
 }
@@ -185,8 +206,7 @@ impl QuicTransport {
 
     fn update_server_config(&mut self) -> Result<(), Error> {
         if self.server_config.is_none() {
-            let config = build_server_config()?;
-            self.server_config = Some(config);
+            return Err(Error::TlsServerConfigMissing);
         }
         if let (Some(endpoint), Some(server_cfg)) =
             (self.endpoint.as_mut(), self.server_config.clone())
@@ -198,6 +218,10 @@ impl QuicTransport {
 
     #[instrument(skip(self, addr))]
     pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
+        let client_config = self
+            .client_config
+            .clone()
+            .ok_or(Error::TlsClientConfigMissing)?;
         let peer_addr = addr
             .to_socket_addrs()?
             .next()
@@ -213,7 +237,7 @@ impl QuicTransport {
 
         let now = Instant::now();
         let (handle, connection) = endpoint
-            .connect(now, self.client_config.clone(), peer_addr, "localhost")
+            .connect(now, client_config, peer_addr, "localhost")
             .map_err(|err| Error::Io(IoError::new(ErrorKind::Other, err.to_string())))?;
 
         let conn_id = self.next_id;
@@ -227,6 +251,9 @@ impl QuicTransport {
 
     #[instrument(skip(self, addr))]
     pub fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
+        if self.server_config.is_none() {
+            return Err(Error::TlsServerConfigMissing);
+        }
         let requested = addr
             .to_socket_addrs()?
             .next()
@@ -891,20 +918,11 @@ fn normalize_addr(addr: SocketAddr) -> SocketAddr {
     }
 }
 
-fn build_server_config() -> Result<Arc<ServerConfig>, Error> {
-    let certified = rcgen::generate_simple_self_signed(vec!["localhost".into()])
-        .map_err(|e| Error::TlsServerConfigBuild(e.to_string()))?;
-    let cert = CertificateDer::from(certified.cert.der().clone());
-    let key = PrivateKeyDer::Pkcs8(certified.key_pair.serialize_der().into());
-
-    let mut rustls_server = rustls::ServerConfig::builder_with_provider(
-        rustls::crypto::ring::default_provider().into(),
-    )
-    .with_protocol_versions(&[&rustls::version::TLS13])
-    .unwrap()
-    .with_no_client_auth()
-    .with_single_cert(vec![cert], key)
-    .map_err(|e| Error::TlsServerConfigBuild(e.to_string()))?;
+fn build_quic_server_config(
+    cert_path: &str,
+    key_path: &str,
+) -> Result<Arc<ServerConfig>, Error> {
+    let mut rustls_server = load_tls_server_config(cert_path, key_path)?;
     rustls_server.max_early_data_size = u32::MAX;
     rustls_server.alpn_protocols = vec![b"rustcomm".to_vec()];
 
@@ -916,61 +934,13 @@ fn build_server_config() -> Result<Arc<ServerConfig>, Error> {
     Ok(Arc::new(server))
 }
 
-fn build_insecure_client_crypto() -> QuicClientConfig {
-    #[derive(Debug)]
-    struct InsecureVerifier;
-
-    impl ServerCertVerifier for InsecureVerifier {
-        fn verify_server_cert(
-            &self,
-            _end_entity: &CertificateDer,
-            _intermediates: &[CertificateDer],
-            _server_name: &ServerName,
-            _ocsp_response: &[u8],
-            _now: UnixTime,
-        ) -> Result<ServerCertVerified, rustls::Error> {
-            Ok(ServerCertVerified::assertion())
-        }
-
-        fn verify_tls12_signature(
-            &self,
-            _message: &[u8],
-            _cert: &CertificateDer,
-            _dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
-            Ok(HandshakeSignatureValid::assertion())
-        }
-
-        fn verify_tls13_signature(
-            &self,
-            _message: &[u8],
-            _cert: &CertificateDer,
-            _dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
-            Ok(HandshakeSignatureValid::assertion())
-        }
-
-        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-            vec![
-                SignatureScheme::ECDSA_NISTP256_SHA256,
-                SignatureScheme::RSA_PSS_SHA256,
-                SignatureScheme::RSA_PKCS1_SHA256,
-            ]
-        }
-    }
-
-    let verifier = Arc::new(InsecureVerifier);
-
-    let mut rustls_client = rustls::ClientConfig::builder_with_provider(
-        rustls::crypto::ring::default_provider().into(),
-    )
-    .with_protocol_versions(&[&rustls::version::TLS13])
-    .unwrap()
-    .dangerous()
-    .with_custom_certificate_verifier(verifier)
-    .with_no_client_auth();
+fn build_quic_client_config(ca_cert_path: &str) -> Result<ClientConfig, Error> {
+    let mut rustls_client = load_tls_client_config(ca_cert_path)?;
     rustls_client.enable_early_data = true;
     rustls_client.alpn_protocols = vec![b"rustcomm".to_vec()];
 
-    QuicClientConfig::try_from(rustls_client).expect("failed to build insecure QUIC client config")
+    let quic_client = QuicClientConfig::try_from(rustls_client)
+        .map_err(|e| Error::TlsClientConfigBuild(e.to_string()))?;
+
+    Ok(ClientConfig::new(Arc::new(quic_client)))
 }

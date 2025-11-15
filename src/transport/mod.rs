@@ -9,6 +9,8 @@ mod quic;
 mod tcp;
 #[cfg(feature = "tls")]
 mod tls;
+#[cfg(any(feature = "tls", feature = "quic"))]
+mod tls_config;
 
 use interface::SendRequest;
 pub use interface::TransportInterface;
