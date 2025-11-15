@@ -1,7 +1,8 @@
 use rustcomm::prelude::*;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, Shutdown};
 use std::thread;
+
 
 #[test]
 fn transport_mesh_tcp() {
@@ -155,11 +156,8 @@ fn run_peer(name: &str, mut transport: Transport, connect_addrs: Vec<SocketAddr>
                             println!(
                                 "[{name}] All data received! Received {expected_data_size} bytes from {expected_connections} connections"
                             );
-                            // TODO: Must be shutdown_all_connections without
-                            // the return being required once it is implemented
-                            // in QuicTransport.
-                            transport.close_all_connections();
-                            return;
+
+                            transport.shutdown_all_connections(Shutdown::Read);
                         }
                     }
                 }

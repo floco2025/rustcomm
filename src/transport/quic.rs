@@ -41,6 +41,10 @@ struct QuicConnection {
     send_buf: VecDeque<u8>,
     connected: bool,
     timeout: Option<Instant>,
+    read_shutdown_requested: bool,
+    write_shutdown_requested: bool,
+    read_shutdown_applied: bool,
+    write_shutdown_applied: bool,
 }
 
 impl QuicConnection {
@@ -52,6 +56,10 @@ impl QuicConnection {
             send_buf: VecDeque::new(),
             connected: false,
             timeout: None,
+            read_shutdown_requested: false,
+            write_shutdown_requested: false,
+            read_shutdown_applied: false,
+            write_shutdown_applied: false,
         }
     }
 }
@@ -236,8 +244,30 @@ impl QuicTransport {
         }
     }
 
-    pub fn shutdown_connection(&mut self, id: usize, _how: Shutdown) {
-        self.close_connection(id);
+    pub fn shutdown_connection(&mut self, id: usize, how: Shutdown) {
+        if let Some(conn) = self.connections.get_mut(&id) {
+            match how {
+                Shutdown::Read => {
+                    debug!(id, "Requesting QUIC read-side shutdown");
+                    conn.read_shutdown_requested = true;
+                    Self::apply_stream_shutdowns(id, conn);
+                }
+                Shutdown::Write => {
+                    debug!(id, "Requesting QUIC write-side shutdown");
+                    conn.write_shutdown_requested = true;
+                    Self::apply_stream_shutdowns(id, conn);
+                }
+                Shutdown::Both => {
+                    debug!(id, "Initiating graceful QUIC full shutdown");
+                    conn.read_shutdown_requested = true;
+                    conn.write_shutdown_requested = true;
+                    let now = Instant::now();
+                    conn.connection.close(now, VarInt::from_u32(0), Bytes::new());
+                }
+            }
+        } else {
+            warn!(id, "QUIC connection not found for shutdown");
+        }
     }
 
     pub fn shutdown_all_connections(&mut self, how: Shutdown) {
@@ -262,6 +292,10 @@ impl QuicTransport {
 
     pub fn send_to(&mut self, id: usize, data: Vec<u8>) {
         if let Some(conn) = self.connections.get_mut(&id) {
+            if conn.write_shutdown_requested {
+                warn!(id, "Ignoring send after QUIC write shutdown requested");
+                return;
+            }
             conn.send_buf.extend(data);
             if conn.connected {
                 Self::ensure_stream_open(id, conn);
@@ -574,12 +608,14 @@ impl QuicTransport {
             StreamEvent::Readable { id: stream_id } => {
                 if conn.stream_id.is_none() {
                     conn.stream_id = Some(stream_id);
+                    Self::apply_stream_shutdowns(id, conn);
                 }
                 Self::drain_recv_stream(id, conn, stream_id, dispatch);
             }
             StreamEvent::Writable { id: stream_id } => {
                 if conn.stream_id.is_none() {
                     conn.stream_id = Some(stream_id);
+                    Self::apply_stream_shutdowns(id, conn);
                 }
                 Self::flush_send_buffer(id, conn);
             }
@@ -600,6 +636,51 @@ impl QuicTransport {
             }
         }
         Self::flush_send_buffer(id, conn);
+        Self::apply_stream_shutdowns(id, conn);
+    }
+
+    fn apply_stream_shutdowns(id: usize, conn: &mut QuicConnection) {
+        if conn.stream_id.is_none() {
+            return;
+        }
+        if conn.write_shutdown_requested && !conn.write_shutdown_applied {
+            Self::finish_send_stream(id, conn);
+        }
+        if conn.read_shutdown_requested && !conn.read_shutdown_applied {
+            Self::stop_recv_stream(id, conn);
+        }
+    }
+
+    fn finish_send_stream(id: usize, conn: &mut QuicConnection) {
+        let Some(stream_id) = conn.stream_id else {
+            return;
+        };
+        Self::flush_send_buffer(id, conn);
+        match conn.connection.send_stream(stream_id).finish() {
+            Ok(()) => {
+                conn.write_shutdown_applied = true;
+                debug!(id, stream_id = ?stream_id, "QUIC send stream finished");
+            }
+            Err(err) => {
+                warn!(id, ?err, "Failed to finish QUIC send stream");
+            }
+        }
+    }
+
+    fn stop_recv_stream(id: usize, conn: &mut QuicConnection) {
+        let Some(stream_id) = conn.stream_id else {
+            return;
+        };
+        let err_code = VarInt::from_u32(0);
+        match conn.connection.recv_stream(stream_id).stop(err_code) {
+            Ok(()) => {
+                conn.read_shutdown_applied = true;
+                debug!(id, stream_id = ?stream_id, "QUIC recv stream stopped");
+            }
+            Err(err) => {
+                warn!(id, ?err, "Failed to stop QUIC recv stream");
+            }
+        }
     }
 
     fn drain_recv_stream(
@@ -608,6 +689,10 @@ impl QuicTransport {
         stream_id: quinn_proto::StreamId,
         dispatch: &mut Vec<TransportEvent>,
     ) {
+        if conn.read_shutdown_requested {
+            debug!(id, "Dropping incoming data after read shutdown request");
+            return;
+        }
         let mut buf = Vec::new();
         match conn.connection.recv_stream(stream_id).read(false) {
             Ok(mut chunks) => {
