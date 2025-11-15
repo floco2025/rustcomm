@@ -6,7 +6,9 @@
 
 use super::tls_config::{load_tls_client_config, load_tls_server_config};
 use super::*;
+use crate::config::{get_namespaced_string, get_namespaced_usize};
 use crate::error::Error;
+use ::config::Config;
 
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token, Waker};
@@ -134,6 +136,7 @@ pub(super) struct TlsTransport {
     max_spurious_wakeups: u32,
     tls_server_config: Option<Arc<rustls::ServerConfig>>,
     tls_client_config: Option<Arc<rustls::ClientConfig>>,
+    tls_server_name: Option<String>,
 }
 
 // ============================================================================
@@ -142,41 +145,20 @@ pub(super) struct TlsTransport {
 
 impl TlsTransport {
     /// Creates a new named TlsTransport instance with configuration namespacing.
-    pub fn new_named(config: &config::Config, name: &str) -> Result<Self, Error> {
-        let max_read_size: usize = if name.is_empty() {
-            config.get("max_read_size").unwrap_or(1024 * 1024)
-        } else {
-            config
-                .get(&format!("{}.max_read_size", name))
-                .or_else(|_| config.get("max_read_size"))
-                .unwrap_or(1024 * 1024)
-        };
+    pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
+        let max_read_size = get_namespaced_usize(config, name, "max_read_size")
+            .unwrap_or(1024 * 1024);
 
-        let poll_capacity: usize = if name.is_empty() {
-            config.get("poll_capacity").unwrap_or(256)
-        } else {
-            config
-                .get(&format!("{}.poll_capacity", name))
-                .or_else(|_| config.get("poll_capacity"))
-                .unwrap_or(256)
-        };
+        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity")
+            .unwrap_or(256);
 
         const MAX_SPURIOUS_WAKEUPS: u32 = 10;
 
-        // Helper to get config value with name prefix fallback
-        let get_string = |key: &str| -> Result<String, config::ConfigError> {
-            if name.is_empty() {
-                config.get_string(key)
-            } else {
-                config
-                    .get_string(&format!("{}.{}", name, key))
-                    .or_else(|_| config.get_string(key))
-            }
-        };
-
         // Load TLS server config from paths if both cert and key are provided
-        let tls_server_config = if let (Ok(cert_path), Ok(key_path)) =
-            (get_string("tls_server_cert"), get_string("tls_server_key"))
+        let tls_server_config = if let (Ok(cert_path), Ok(key_path)) = (
+            get_namespaced_string(config, name, "tls_server_cert"),
+            get_namespaced_string(config, name, "tls_server_key"),
+        )
         {
             Some(Arc::new(load_tls_server_config(&cert_path, &key_path)?))
         } else {
@@ -184,10 +166,19 @@ impl TlsTransport {
         };
 
         // Load TLS client config from CA cert path if provided
-        let tls_client_config = if let Ok(ca_cert_path) = get_string("tls_ca_cert") {
+        let tls_client_config = if let Ok(ca_cert_path) =
+            get_namespaced_string(config, name, "tls_ca_cert")
+        {
             Some(Arc::new(load_tls_client_config(&ca_cert_path)?))
         } else {
             None
+        };
+
+        // Optional override for the TLS server name/SNI used during connect
+        let tls_server_name = match get_namespaced_string(config, name, "tls_server_name") {
+            Ok(name) => Some(name),
+            Err(config::ConfigError::NotFound(_)) => None,
+            Err(err) => return Err(err.into()),
         };
 
         let poll = Poll::new()?;
@@ -208,6 +199,7 @@ impl TlsTransport {
             max_spurious_wakeups: MAX_SPURIOUS_WAKEUPS,
             tls_server_config,
             tls_client_config,
+            tls_server_name,
         })
     }
 }
@@ -240,9 +232,14 @@ impl TlsTransport {
         let local_addr = stream.local_addr().expect("Failed to get local address");
         info!(id = connection_id, %local_addr, %peer_addr, "Initiating connection");
 
-        // Create TLS client connection
-        let server_name = ServerName::try_from("localhost")
-            .map_err(|_| Error::TlsInvalidServerName("localhost".to_string()))?;
+        // Create TLS client connection with configurable SNI
+        let server_name_value = self
+            .tls_server_name
+            .clone()
+            .unwrap_or_else(|| "localhost".to_string());
+        let server_name_for_err = server_name_value.clone();
+        let server_name = ServerName::try_from(server_name_value)
+            .map_err(|_| Error::TlsInvalidServerName(server_name_for_err))?;
         let tls_conn = rustls::ClientConnection::new(
             self.tls_client_config.as_ref().unwrap().clone(),
             server_name,
@@ -541,7 +538,7 @@ impl TlsTransport {
                 if id == WAKE_ID {
                     // Nothing to do
                 } else if self.listeners.contains_key(&id) {
-                    let _new_conn_ids = self.accept_connections(id)?;
+                    self.accept_connections(id)?;
                     // In contrast to TCP, we do not add a connected event after
                     // accepting, because the connection is only considered to be
                     // established when the TLS handshake is complete.
@@ -555,6 +552,9 @@ impl TlsTransport {
                     );
 
                     assert!(event.is_readable() || event.is_writable());
+                    // mio reports errors alongside readable/writable bits, so
+                    // we intentionally skip event.is_error() here and let the
+                    // actual read/write attempt surface specific failures.
 
                     if event.is_readable() {
                         match self.read_connection(id) {
@@ -691,19 +691,29 @@ impl TlsTransport {
                     stream.set_nodelay(true)?;
                     new_streams.push(stream);
                 }
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    // Further accepting would block, so we are done
-                    break;
-                }
-                Err(err) => {
-                    let local_addr = listener.local_addr().expect("Failed to get local address");
-                    error!(?err, %local_addr, "Error accepting connection");
-                    self.poll
-                        .registry()
-                        .deregister(listener)
-                        .expect("Failed to deregister listener");
-                    self.listeners.remove(&id);
-                    return Err(err.into());
+                Err(err) => match err.kind() {
+                    ErrorKind::WouldBlock => {
+                        // Further accepting would block, so we are done
+                        break;
+                    }
+                    ErrorKind::Interrupted => continue,
+                    ErrorKind::ConnectionAborted | ErrorKind::ConnectionReset => {
+                        let local_addr =
+                            listener.local_addr().expect("Failed to get local address");
+                        warn!(?err, %local_addr, "Transient accept error");
+                        continue;
+                    }
+                    _ => {
+                        let local_addr =
+                            listener.local_addr().expect("Failed to get local address");
+                        error!(?err, %local_addr, "Error accepting connection");
+                        self.poll
+                            .registry()
+                            .deregister(listener)
+                            .expect("Failed to deregister listener");
+                        self.listeners.remove(&id);
+                        return Err(err.into());
+                    }
                 }
             }
         }
@@ -1071,6 +1081,9 @@ impl TlsTransport {
             warn!(id, "Connection not found when queuing data");
             return;
         };
+
+        // TODO: enforce a per-connection send buffer limit to avoid unbounded
+        // memory usage.
 
         // If send_buf is empty, as it will be in most cases, send_buf will
         // consume buf to avoid extra memory allocations. Perhaps that's

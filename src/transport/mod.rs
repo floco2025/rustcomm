@@ -20,8 +20,9 @@ use tcp::TcpTransport;
 #[cfg(feature = "tls")]
 use tls::TlsTransport;
 
+use crate::config::get_namespaced_string;
 use crate::error::Error;
-use config::Config;
+use ::config::Config;
 use std::net::{Shutdown, SocketAddr, ToSocketAddrs};
 
 // Internal transport trait for network communication.
@@ -161,16 +162,8 @@ impl Transport {
     /// tls_server_cert = "/path/to/cert.pem"
     /// ```
     pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
-        let transport_type = if name.is_empty() {
-            config
-                .get_string("transport_type")
-                .unwrap_or_else(|_| "tcp".to_string())
-        } else {
-            config
-                .get_string(&format!("{}.transport_type", name))
-                .or_else(|_| config.get_string("transport_type"))
-                .unwrap_or_else(|_| "tcp".to_string())
-        };
+        let transport_type =
+            get_namespaced_string(config, name, "transport_type").unwrap_or_else(|_| "tcp".to_string());
 
         let inner: Box<dyn TransportImpl> = match transport_type.as_str() {
             "tcp" => Box::new(TcpTransport::new_named(config, name)?),

@@ -236,6 +236,7 @@
 //! Then set: `RUSTCOMM_TRANSPORT_TYPE=tls`, etc.
 
 // Internal-only modules
+pub(crate) mod config;
 pub(crate) mod error;
 pub(crate) mod messenger;
 pub mod transport;

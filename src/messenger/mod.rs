@@ -16,7 +16,7 @@ use message::{deserialize_message, serialize_message};
 pub use message::{Context, EmptyContext, Message};
 pub use registry::{MessageDeserializer, MessageRegistry, MessageSerializer};
 
-use config::Config;
+use ::config::Config;
 use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 use tracing::{debug, error, instrument, warn};

@@ -5,7 +5,9 @@
 //! single-threaded event loop.
 
 use super::*;
+use crate::config::get_namespaced_usize;
 use crate::error::Error;
+use ::config::Config;
 
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token, Waker};
@@ -74,24 +76,12 @@ pub(super) struct TcpTransport {
 
 impl TcpTransport {
     /// Creates a new named TcpTransport instance with configuration namespacing.
-    pub fn new_named(config: &config::Config, name: &str) -> Result<Self, Error> {
-        let max_read_size: usize = if name.is_empty() {
-            config.get("max_read_size").unwrap_or(1024 * 1024)
-        } else {
-            config
-                .get(&format!("{}.max_read_size", name))
-                .or_else(|_| config.get("max_read_size"))
-                .unwrap_or(1024 * 1024)
-        };
+    pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
+        let max_read_size = get_namespaced_usize(config, name, "max_read_size")
+            .unwrap_or(1024 * 1024);
 
-        let poll_capacity: usize = if name.is_empty() {
-            config.get("poll_capacity").unwrap_or(256)
-        } else {
-            config
-                .get(&format!("{}.poll_capacity", name))
-                .or_else(|_| config.get("poll_capacity"))
-                .unwrap_or(256)
-        };
+        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity")
+            .unwrap_or(256);
 
         const MAX_SPURIOUS_WAKEUPS: u32 = 10;
 
@@ -436,6 +426,9 @@ impl TcpTransport {
                     );
 
                     assert!(event.is_readable() || event.is_writable());
+                    // mio reports errors alongside readable/writable bits, so
+                    // we intentionally skip event.is_error() here and let the
+                    // actual read/write attempt surface specific failures.
 
                     if event.is_readable() {
                         match self.read_connection(id) {
@@ -566,20 +559,30 @@ impl TcpTransport {
                     stream.set_nodelay(true)?;
                     new_streams.push(stream);
                 }
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    // Further accepting would block, so we are done
-                    break;
-                }
-                Err(err) => {
-                    let local_addr = listener.local_addr().expect("Failed to get local address");
-                    error!(?err, %local_addr, "Error accepting connection");
-                    self.poll
-                        .registry()
-                        .deregister(listener)
-                        .expect("Failed to deregister listener");
-                    self.listeners.remove(&id);
-                    return Err(err.into());
-                }
+                Err(err) => match err.kind() {
+                    ErrorKind::WouldBlock => {
+                        // Further accepting would block, so we are done
+                        break;
+                    }
+                    ErrorKind::Interrupted => continue,
+                    ErrorKind::ConnectionAborted | ErrorKind::ConnectionReset => {
+                        let local_addr =
+                            listener.local_addr().expect("Failed to get local address");
+                        warn!(?err, %local_addr, "Transient accept error");
+                        continue;
+                    }
+                    _ => {
+                        let local_addr =
+                            listener.local_addr().expect("Failed to get local address");
+                        error!(?err, %local_addr, "Error accepting connection");
+                        self.poll
+                            .registry()
+                            .deregister(listener)
+                            .expect("Failed to deregister listener");
+                        self.listeners.remove(&id);
+                        return Err(err.into());
+                    }
+                },
             }
         }
 
@@ -804,6 +807,9 @@ impl TcpTransport {
             warn!(id, "Connection not found when queuing data");
             return;
         };
+
+        // TODO: enforce a per-connection send buffer limit to avoid unbounded
+        // memory usage.
 
         // If send_buf is empty, as it will be in most cases, send_buf will
         // consume buf to avoid extra memory allocations. Perhaps that's

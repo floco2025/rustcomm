@@ -7,7 +7,9 @@
 
 use super::tls_config::{load_tls_client_config, load_tls_server_config};
 use super::*;
+use crate::config::{get_namespaced_string, get_namespaced_usize};
 use crate::error::Error;
+use ::config::Config;
 use bytes::{Bytes, BytesMut};
 use mio::net::UdpSocket;
 use mio::{Events, Interest, Poll, Token, Waker};
@@ -100,40 +102,26 @@ pub(super) struct QuicTransport {
 }
 
 impl QuicTransport {
-    pub fn new_named(config: &config::Config, name: &str) -> Result<Self, Error> {
-        let poll_capacity: usize = if name.is_empty() {
-            config.get("quic_poll_capacity").unwrap_or(256)
-        } else {
-            config
-                .get(&format!("{}.quic_poll_capacity", name))
-                .or_else(|_| config.get("quic_poll_capacity"))
-                .unwrap_or(256)
-        };
+    pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
+        let poll_capacity = get_namespaced_usize(config, name, "quic_poll_capacity")
+            .unwrap_or(256);
 
         let poll = Poll::new()?;
         let waker = Arc::new(Waker::new(poll.registry(), Token(WAKE_ID))?);
         let (sender, receiver) = channel();
 
-        let get_string = |key: &str| -> Result<String, config::ConfigError> {
-            if name.is_empty() {
-                config.get_string(key)
-            } else {
-                config
-                    .get_string(&format!("{name}.{key}"))
-                    .or_else(|_| config.get_string(key))
-            }
-        };
-
         let server_config = if let (Ok(cert_path), Ok(key_path)) = (
-            get_string("tls_server_cert"),
-            get_string("tls_server_key"),
+            get_namespaced_string(config, name, "tls_server_cert"),
+            get_namespaced_string(config, name, "tls_server_key"),
         ) {
             Some(build_quic_server_config(&cert_path, &key_path)?)
         } else {
             None
         };
 
-        let client_config = if let Ok(ca_cert_path) = get_string("tls_ca_cert") {
+        let client_config = if let Ok(ca_cert_path) =
+            get_namespaced_string(config, name, "tls_ca_cert")
+        {
             Some(build_quic_client_config(&ca_cert_path)?)
         } else {
             None
