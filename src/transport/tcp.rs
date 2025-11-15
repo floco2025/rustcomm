@@ -80,7 +80,8 @@ impl TcpTransport {
         let max_read_size =
             get_namespaced_usize(config, name, "max_read_size").unwrap_or(1024 * 1024);
 
-        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity").unwrap_or(256);
+        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity")
+            .unwrap_or(DEFAULT_POLL_CAPACITY);
 
         const MAX_SPURIOUS_WAKEUPS: u32 = 10;
 

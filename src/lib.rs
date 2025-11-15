@@ -206,6 +206,7 @@
 //! # let registry = MessageRegistry::new();
 //! let game_messenger = Messenger::new_named(&config, &registry, "game_server")?;
 //! let auth_messenger = Messenger::new_named(&config, &registry, "auth_server")?;
+//! let edge_messenger = Messenger::new_named(&config, &registry, "edge_quic")?;
 //! # Ok(())
 //! # }
 //! ```

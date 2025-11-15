@@ -103,7 +103,8 @@ pub(super) struct QuicTransport {
 
 impl QuicTransport {
     pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
-        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity").unwrap_or(256);
+        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity")
+            .unwrap_or(DEFAULT_POLL_CAPACITY);
 
         let poll = Poll::new()?;
         let waker = Arc::new(Waker::new(poll.registry(), Token(WAKE_ID))?);

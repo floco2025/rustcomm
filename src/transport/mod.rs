@@ -25,6 +25,9 @@ use crate::error::Error;
 use ::config::Config;
 use std::net::{Shutdown, SocketAddr, ToSocketAddrs};
 
+/// Default event capacity used by all transports when `poll_capacity` absent.
+pub(crate) const DEFAULT_POLL_CAPACITY: usize = 256;
+
 // Internal transport trait for network communication.
 //
 // This trait abstracts over different transport implementations (TCP, TLS,
