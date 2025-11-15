@@ -30,8 +30,8 @@ trait TransportImpl: Send {
     // Connection Management
     // ============================================================================
 
-    // We cannot use ToSocketAddrs like with Transport::connect/listen, because this
-    // would make this function generic, and thereby not dyn-compatible.
+    // We cannot use ToSocketAddrs like with Transport::connect/listen, because
+    // this would make this function generic, and thereby not dyn-compatible.
     fn connect_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error>;
     fn listen_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error>;
 
@@ -140,7 +140,8 @@ impl Transport {
     /// # Configuration Keys
     ///
     /// - `transport_type`: Either "tcp" or "tls"
-    /// - Transport-specific keys (e.g., `max_read_size` for TCP, `tls_server_cert` for TLS)
+    /// - Transport-specific keys (e.g., `max_read_size` for TCP,
+    ///   `tls_server_cert` for TLS)
     ///
     /// # Example
     ///
@@ -219,7 +220,7 @@ impl Transport {
     /// [`TransportInterface`] instead.
     ///
     /// Returns a tuple of (listener_id, socket_addr) where:
-    /// - `listener_id`: Can be used with [`close_listener()`] to stop
+    /// - `listener_id`: Can be used with [`Self::close_listener`] to stop
     ///   listening. Note: This ID cannot be used for sending data - only for
     ///   closing the listener.
     /// - `socket_addr`: The actual address being listened on (useful when
@@ -313,7 +314,8 @@ impl Transport {
     ///
     /// **Note:** This does not trigger [`TransportEvent::Disconnected`] events.
     /// However, it will trigger a [`TransportEvent::Inactive`] event if no new
-    /// connections or listeners are created before calling [`fetch_events()`].
+    /// connections or listeners are created before calling
+    /// [`Self::fetch_events`].
     pub fn close_all(&mut self) {
         self.inner.close_all()
     }

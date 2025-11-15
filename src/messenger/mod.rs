@@ -276,7 +276,7 @@ impl<C: Context> Messenger<C> {
 
     /// Sends a message to a specific connection.
     ///
-    /// Calls [`send_to_with_context()`] with an empty context.
+    /// Calls [`Self::send_to_with_context`] with an empty context.
     #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
     pub fn send_to(&mut self, to_id: usize, msg: &dyn Message)
     where
@@ -302,9 +302,8 @@ impl<C: Context> Messenger<C> {
 
     /// Sends a message to multiple specific connections.
     ///
-    /// Calls [`send_to_many_with_context()`]
-    /// with an empty context.
-    #[instrument(skip(self, msg, to_ids), fields(msg_id = msg.message_id()))]
+    /// Calls [`Self::send_to_many_with_context`] with an empty context.
+    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
     pub fn send_to_many(&mut self, to_ids: &[usize], msg: &dyn Message)
     where
         C: Default,
@@ -333,7 +332,7 @@ impl<C: Context> Messenger<C> {
 
     /// Broadcasts a message to all connected clients.
     ///
-    /// Calls [`broadcast_with_context()`] with an empty context.
+    /// Calls [`Self::broadcast_with_context`] with an empty context.
     #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
     pub fn broadcast(&mut self, msg: &dyn Message)
     where
@@ -359,7 +358,7 @@ impl<C: Context> Messenger<C> {
 
     /// Broadcasts a message to all connected clients except one.
     ///
-    /// Calls [`broadcast_except_with_context()`] with an empty context.
+    /// Calls [`Self::broadcast_except_with_context`] with an empty context.
     #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
     pub fn broadcast_except(&mut self, msg: &dyn Message, except_id: usize)
     where
@@ -386,8 +385,9 @@ impl<C: Context> Messenger<C> {
     /// Broadcasts a message to all connected clients except multiple specified
     /// ones.
     ///
-    /// Calls [`broadcast_except_many_with_context()`] with an empty context.
-    #[instrument(skip(self, msg, except_ids), fields(msg_id = msg.message_id()))]
+    /// Calls [`Self::broadcast_except_many_with_context`] with an empty
+    /// context.
+    #[instrument(skip(self, msg), fields(msg_id = msg.message_id()))]
     pub fn broadcast_except_many(&mut self, msg: &dyn Message, except_ids: &[usize])
     where
         C: Default,
