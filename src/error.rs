@@ -36,22 +36,6 @@ pub enum Error {
     // ============================================================================
     // Message Serialization Errors
     // ============================================================================
-    /// Message header doesn't start with the expected magic bytes.
-    ///
-    /// This typically indicates corrupted data or attempting to deserialize
-    /// non-message data.
-    #[error("Invalid magic bytes in message header")]
-    InvalidMagicBytes,
-
-    /// Message protocol version is incompatible with this library version.
-    #[error("Protocol version mismatch: expected {expected_major}.{expected_minor}, but message uses {received_major}.{received_minor}")]
-    VersionMismatch {
-        expected_major: u8,
-        expected_minor: u8,
-        received_major: u8,
-        received_minor: u8,
-    },
-
     /// Message data is corrupted or doesn't match the expected format.
     #[error("Malformed message data: {0}")]
     MalformedData(String),

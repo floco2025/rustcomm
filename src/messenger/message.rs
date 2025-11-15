@@ -1,8 +1,32 @@
+//! Message framing and routing for the messenger layer.
+//!
+//! This module provides a **simple length-prefixed framing layer** for messages
+//! sent over the transport. The framing protocol is intentionally minimal: it
+//! only adds a 4-byte length prefix to delimit message boundaries in the byte
+//! stream.
+//!
+//! # Framing Protocol
+//!
+//! Each frame consists of:
+//! - **Length prefix**: 4 bytes (u32 little-endian) indicating payload size
+//! - **Payload**: Variable-length data containing context, message ID, and
+//!   message body
+//!
+//! # Message Routing
+//!
+//! The payload contains:
+//! - An optional application-defined context (serialized via [`Context`] trait)
+//! - Message ID (string identifying the message type)
+//! - Message body (serialized via [`MessageRegistry`] codecs)
+//!
+//! The [`MessageRegistry`] maps message IDs to serialization/deserialization
+//! functions, enabling type-safe message dispatch.
+
 use super::registry::MessageRegistry;
 use crate::error::Error;
 use downcast_rs::{impl_downcast, Downcast};
 use std::fmt::Debug;
-use tracing::{error, trace, warn};
+use tracing::{trace, warn};
 
 // ============================================================================
 // Type Aliases
@@ -16,14 +40,10 @@ type DeserializeResult<C> = Result<Option<(Box<dyn Message>, C, usize)>, Error>;
 // Constants
 // ============================================================================
 
-const MAGIC: &[u8] = b"mpg!";
-const MAGIC_SIZE: usize = MAGIC.len();
-const VERSION_MAJOR: u8 = 0;
-const VERSION_MINOR: u8 = 1;
-const VERSION_SIZE: usize = 2; // major + minor
-const BODY_SIZE_SIZE: usize = 4;
-const HEADER_SIZE: usize = MAGIC_SIZE + VERSION_SIZE + BODY_SIZE_SIZE;
-const INITIAL_BODY_CAPACITY: usize = 64;
+/// Size of the message length prefix in bytes (u32)
+const FRAME_SIZE_BYTES: usize = 4;
+/// Initial capacity for message payload buffer
+const INITIAL_PAYLOAD_CAPACITY: usize = 64;
 
 // ============================================================================
 // Message Trait
@@ -108,16 +128,19 @@ macro_rules! impl_message {
 }
 
 // ============================================================================
-// Message Serialization and Deserialization
+// Message Framing
 // ============================================================================
 
-/// Serializes a message with context to its wire format.
+/// Serializes a message with context into a length-prefixed frame.
 ///
-/// Wire format: \[MAGIC\]\[VERSION\]\[body_size\]\[context\]\[msg_id\]\[msg_body\]
-/// - MAGIC: 4 bytes ("mpg!") - helps detect protocol mismatches
-/// - VERSION: 2 bytes (major, minor) - protocol version
-/// - body_size: 4 bytes (u32 LE) - length of everything after the header
-/// - context: variable length (serialized context data)
+/// This is a simple framing layer that prepends a 4-byte length prefix (u32 LE)
+/// to the payload. The payload contains the context and message data as
+/// serialized by the registry's codec.
+///
+/// Frame format: \[length\]\[context\]\[msg_id\]\[msg_body\]
+/// - length: 4 bytes (u32 LE) - length of the payload (everything after length
+///   prefix)
+/// - context: optional variable length (serialized context data)
 /// - msg_id: variable length string (includes length prefix)
 /// - msg_body: variable length data (format depends on registered serializer)
 pub(super) fn serialize_message<C: Context>(
@@ -131,23 +154,16 @@ pub(super) fn serialize_message<C: Context>(
     // Get the serializer for this message type
     let codec_pair = registry.get(msg_id).expect("Message not registered");
 
-    let mut buf = Vec::with_capacity(HEADER_SIZE + INITIAL_BODY_CAPACITY);
+    let mut buf = Vec::with_capacity(FRAME_SIZE_BYTES + INITIAL_PAYLOAD_CAPACITY);
 
-    // Write magic bytes for protocol identification
-    buf.extend_from_slice(MAGIC);
-
-    // Write version (major, minor)
-    buf.push(VERSION_MAJOR);
-    buf.push(VERSION_MINOR);
-
-    // Reserve space for body size (will be filled in later)
-    let body_size_pos = buf.len();
-    buf.extend(&[0u8; 4]);
+    // Reserve space for length prefix (will be filled in later)
+    let length_pos = buf.len();
+    buf.extend(&[0u8; FRAME_SIZE_BYTES]);
 
     // Serialize context first
     ctx.serialize_into(&mut buf);
 
-    // Serialize message ID with length prefix (manual format)
+    // Serialize message ID with length prefix
     let msg_id_bytes = msg_id.as_bytes();
     buf.extend(&(msg_id_bytes.len() as u32).to_le_bytes());
     buf.extend(msg_id_bytes);
@@ -155,109 +171,74 @@ pub(super) fn serialize_message<C: Context>(
     // Serialize message-specific body data using the registered serializer
     (codec_pair.serializer)(msg, &mut buf);
 
-    // Go back and fill in the actual body size
-    let body_len = (buf.len() - HEADER_SIZE) as u32;
-    buf[body_size_pos..body_size_pos + 4].copy_from_slice(&body_len.to_le_bytes());
+    // Go back and fill in the actual payload length
+    let payload_len = (buf.len() - FRAME_SIZE_BYTES) as u32;
+    buf[length_pos..length_pos + FRAME_SIZE_BYTES].copy_from_slice(&payload_len.to_le_bytes());
 
     buf
 }
 
-/// Deserializes a message with context from a buffer.
-///
-/// This is an internal function. Use `Messenger::fetch_events` instead.
+/// Deserializes a length-prefixed message frame with context from a buffer.
 ///
 /// This function is designed for streaming scenarios where data arrives
 /// incrementally. It will return `Ok(None)` when there's insufficient data
 /// rather than erroring, allowing the caller to wait for more bytes to arrive.
 ///
 /// Returns:
-/// - `Ok(Some((msg, ctx, bytes_read)))` - Successfully deserialized message and context
+/// - `Ok(Some((msg, ctx, bytes_read)))` - Successfully deserialized message and
+///   context
 /// - `Ok(None)` - Not enough data available (normal streaming condition)
-/// - `Err(_)` - Invalid data (bad magic bytes, malformed data, unknown message ID)
+/// - `Err(_)` - Invalid data (malformed data, unknown message ID)
 pub(super) fn deserialize_message<C: Context>(
     buf: &[u8],
     registry: &MessageRegistry,
 ) -> DeserializeResult<C> {
-    // Need at least header bytes to proceed
-    if buf.len() < HEADER_SIZE {
+    // Need at least the length prefix to proceed
+    if buf.len() < FRAME_SIZE_BYTES {
         return Ok(None);
     }
 
-    // Verify magic bytes to ensure this is our protocol
-    if &buf[0..MAGIC_SIZE] != MAGIC {
-        error!(
-            expected = ?MAGIC,
-            received = ?&buf[0..MAGIC_SIZE],
-            "Invalid magic bytes in message header"
-        );
-        return Err(Error::InvalidMagicBytes);
-    }
+    // Read the payload length
+    let length_bytes: [u8; FRAME_SIZE_BYTES] = buf[0..FRAME_SIZE_BYTES]
+        .try_into()
+        .expect("slice is exactly FRAME_SIZE_BYTES");
+    let payload_len = u32::from_le_bytes(length_bytes) as usize;
 
-    // Read and validate version
-    let version_major = buf[MAGIC_SIZE];
-    let version_minor = buf[MAGIC_SIZE + 1];
+    // Calculate total frame size and check if we have enough data
+    let frame_size = payload_len + FRAME_SIZE_BYTES;
 
-    if version_major != VERSION_MAJOR || version_minor != VERSION_MINOR {
-        error!(
-            expected_major = VERSION_MAJOR,
-            expected_minor = VERSION_MINOR,
-            received_major = version_major,
-            received_minor = version_minor,
-            "Protocol version mismatch"
-        );
-        return Err(Error::VersionMismatch {
-            expected_major: VERSION_MAJOR,
-            expected_minor: VERSION_MINOR,
-            received_major: version_major,
-            received_minor: version_minor,
-        });
-    }
-
-    // Read the body size to know how many total bytes we need
-    let body_size_bytes: [u8; 4] = match buf
-        .get(MAGIC_SIZE + VERSION_SIZE..MAGIC_SIZE + VERSION_SIZE + BODY_SIZE_SIZE)
-        .and_then(|s| s.try_into().ok())
-    {
-        Some(bytes) => bytes,
-        None => return Ok(None),
-    };
-    let body_size = u32::from_le_bytes(body_size_bytes) as usize;
-
-    // Calculate total message size and check if we have enough data
-    let msg_size = body_size + HEADER_SIZE;
-
-    if buf.len() < msg_size {
+    if buf.len() < frame_size {
         return Ok(None); // Wait for more data
     }
 
-    // Extract the body (everything after the header)
-    let body = &buf[HEADER_SIZE..msg_size];
+    // Extract the payload (everything after the length prefix)
+    let payload = &buf[FRAME_SIZE_BYTES..frame_size];
 
     // Deserialize context first
-    let (ctx, ctx_bytes) = C::deserialize(body)?;
+    let (ctx, ctx_bytes) = C::deserialize(payload)?;
 
-    // The remaining body starts after the context
-    let remaining_body = &body[ctx_bytes..];
+    // The remaining payload starts after the context
+    let remaining_payload = &payload[ctx_bytes..];
 
     // Read message ID length prefix
-    let msg_id_len_bytes: [u8; 4] = match remaining_body.get(0..4).and_then(|s| s.try_into().ok()) {
+    let msg_id_len_bytes: [u8; 4] = match remaining_payload.get(0..4).and_then(|s| s.try_into().ok()) {
         Some(bytes) => bytes,
         None => return Ok(None),
     };
     let msg_id_len = u32::from_le_bytes(msg_id_len_bytes) as usize;
 
-    if remaining_body.len() < 4 + msg_id_len {
+    if remaining_payload.len() < 4 + msg_id_len {
         return Ok(None);
     }
 
     // Extract and validate message ID as UTF-8 string
-    let msg_id = std::str::from_utf8(&remaining_body[4..4 + msg_id_len]).map_err(|e| {
+    let msg_id = std::str::from_utf8(&remaining_payload[4..4 + msg_id_len]).map_err(|e| {
         warn!(%e, "Invalid UTF-8 in message ID");
         Error::MalformedData(format!("Invalid UTF-8 in message ID: {}", e))
     })?;
 
     // The remaining bytes are the message-specific body data
-    let msg_data = &remaining_body[4 + msg_id_len..];
+    let msg_data = &remaining_payload[4 + msg_id_len..];
 
     // Look up the codec pair for this message type
     let codec_pair = registry.get(msg_id).ok_or_else(|| {
@@ -265,14 +246,13 @@ pub(super) fn deserialize_message<C: Context>(
         Error::UnknownMessageId(msg_id.to_string())
     })?;
 
-    trace!(msg_id, len = msg_size, "Deserializing message");
+    trace!(msg_id, len = frame_size, "Deserializing message");
 
     // Deserialize the message body using the registered deserializer
-    // At this point we have complete data as guaranteed by the framing layer
     let msg = (codec_pair.deserializer)(msg_data).map_err(|e| {
         warn!(msg_id, error = %e, "Failed to deserialize message");
         e
     })?;
 
-    Ok(Some((msg, ctx, msg_size)))
+    Ok(Some((msg, ctx, frame_size)))
 }
