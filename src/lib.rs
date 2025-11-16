@@ -126,10 +126,24 @@
 //! | `poll_capacity` | Event polling capacity for mio (default: 256) |
 //!
 //! ### TCP Configuration
+//! 
+//! **Optional:**
 //!
 //! | Key | Description |
 //! |-----|-------------|
 //! | `max_read_size` | Maximum bytes per socket read call |
+//!
+//! ### TLS Configuration
+//! 
+//! **Required:**
+//! 
+//! See the "TLS / QUIC Security Configuration" section below
+//! 
+//! **Optional:**
+//!
+//! | Key | Description |
+//! |-----|-------------|
+//! | `max_read_size` | Maximum plaintext bytes per read from rustls |
 //!
 //! ### TLS / QUIC Security Configuration
 //!
@@ -144,11 +158,15 @@
 //! | `tls_server_key` | Path to server private key (PEM format) - required for `listen()` |
 //! | `tls_ca_cert` | Path to CA certificate (PEM format) - required for `connect()` |
 //!
-//! **Optional (TLS-specific):**
+//! **Optional:**
 //!
 //! | Key | Description |
 //! |-----|-------------|
-//! | `max_read_size` | Maximum plaintext bytes per read from rustls |
+//! | `tls_server_name` | Override the TLS/QUIC client SNI (defaults to `"localhost"`) |
+//!
+//! `tls_server_name` applies to both TLS and QUIC transports so their client
+//! handshakes stay in sync when the remote certificate uses a non-default
+//! hostname.
 //!
 //! ## Configuration Examples
 //!

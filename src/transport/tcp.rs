@@ -80,8 +80,8 @@ impl TcpTransport {
         let max_read_size =
             get_namespaced_usize(config, name, "max_read_size").unwrap_or(1024 * 1024);
 
-        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity")
-            .unwrap_or(DEFAULT_POLL_CAPACITY);
+        let poll_capacity =
+            get_namespaced_usize(config, name, "poll_capacity").unwrap_or(DEFAULT_POLL_CAPACITY);
 
         const MAX_SPURIOUS_WAKEUPS: u32 = 10;
 
@@ -110,10 +110,6 @@ impl TcpTransport {
 // ============================================================================
 
 impl TcpTransport {
-    // ============================================================================
-    // Connection Management
-    // ============================================================================
-
     /// Initiates a connection to the specified address.
     #[instrument(skip(self, addr))]
     pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {

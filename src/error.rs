@@ -100,6 +100,14 @@ pub enum Error {
     TlsClientConfigBuild(String),
 
     // ============================================================================
+    // QUIC Errors
+    // ============================================================================
+    #[cfg(feature = "quic")]
+    /// Errors surfaced from the underlying quinn-proto implementation.
+    #[error("QUIC protocol error: {0}")]
+    QuicProto(#[from] quinn_proto::ConnectError),
+
+    // ============================================================================
     // Configuration Errors
     // ============================================================================
     /// Configuration file parsing or key lookup failed.

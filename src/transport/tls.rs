@@ -134,8 +134,8 @@ pub(super) struct TlsTransport {
     spurious_wakeups: usize,
     max_read_size: usize,
     max_spurious_wakeups: u32,
-    tls_server_config: Option<Arc<rustls::ServerConfig>>,
     tls_client_config: Option<Arc<rustls::ClientConfig>>,
+    tls_server_config: Option<Arc<rustls::ServerConfig>>,
     tls_server_name: Option<String>,
 }
 
@@ -149,8 +149,12 @@ impl TlsTransport {
         let max_read_size =
             get_namespaced_usize(config, name, "max_read_size").unwrap_or(1024 * 1024);
 
-        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity")
-            .unwrap_or(DEFAULT_POLL_CAPACITY);
+        let poll_capacity =
+            get_namespaced_usize(config, name, "poll_capacity").unwrap_or(DEFAULT_POLL_CAPACITY);
+
+        let poll = Poll::new()?;
+        let waker = Arc::new(Waker::new(poll.registry(), Token(WAKE_ID))?);
+        let (sender, receiver) = channel();
 
         const MAX_SPURIOUS_WAKEUPS: u32 = 10;
 
@@ -179,10 +183,6 @@ impl TlsTransport {
             Err(err) => return Err(err.into()),
         };
 
-        let poll = Poll::new()?;
-        let waker = Arc::new(Waker::new(poll.registry(), Token(WAKE_ID))?);
-        let (sender, receiver) = channel();
-
         Ok(Self {
             connections: HashMap::new(),
             listeners: HashMap::new(),
@@ -195,8 +195,8 @@ impl TlsTransport {
             spurious_wakeups: 0,
             max_read_size,
             max_spurious_wakeups: MAX_SPURIOUS_WAKEUPS,
-            tls_server_config,
             tls_client_config,
+            tls_server_config,
             tls_server_name,
         })
     }
@@ -207,10 +207,6 @@ impl TlsTransport {
 // ============================================================================
 
 impl TlsTransport {
-    // ============================================================================
-    // Connection Management
-    // ============================================================================
-
     /// Initiates a connection to the specified address.
     #[instrument(skip(self, addr))]
     pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {

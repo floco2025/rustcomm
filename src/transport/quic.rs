@@ -20,19 +20,21 @@ use quinn_proto::{
     WriteError,
 };
 use std::collections::{HashMap, VecDeque};
-use std::io::{Error as IoError, ErrorKind};
+use std::io::ErrorKind;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
+// Internal constants for connection management
 const WAKE_ID: usize = 2;
 const CLIENT_SOCKET_TOKEN: usize = 3;
 const CONNECTION_ID_RANGE_START: usize = 1000;
 const MAX_DATAGRAMS: usize = 16;
 const MAX_UDP_PAYLOAD: usize = 65535;
 
+// Internal data type for tracking half shutdown
 #[derive(Debug, Default)]
 struct StreamHalfShutdown {
     requested: bool,
@@ -53,13 +55,14 @@ impl StreamHalfShutdown {
     }
 }
 
-/// State associated with an active QUIC connection.
+/// Internal state associated with an active QUIC connection
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum EndpointRef {
     Client,
     Listener(usize),
 }
 
+// Internal data type for a QUIC connection
 #[derive(Debug)]
 struct QuicConnection {
     handle: ConnectionHandle,
@@ -89,6 +92,7 @@ impl QuicConnection {
     }
 }
 
+// Internal data type for a listener state
 #[derive(Debug)]
 struct ListenerState {
     socket: UdpSocket,
@@ -99,6 +103,10 @@ struct ListenerState {
 }
 
 /// QUIC transport driven by mio.
+///
+/// Not thread-safe - use TransportInterface for cross-thread communication.
+///
+/// Note: This struct is internal. Users should use the `Transport` struct instead.
 #[derive(Debug)]
 pub(super) struct QuicTransport {
     connections: HashMap<usize, QuicConnection>,
@@ -114,11 +122,17 @@ pub(super) struct QuicTransport {
     client_endpoint: Option<Endpoint>,
     client_recv_buffer: Vec<u8>,
     send_buffer: Vec<u8>,
-    client_config: Option<ClientConfig>,
-    server_config: Option<Arc<ServerConfig>>,
+    tls_client_config: Option<ClientConfig>,
+    tls_server_config: Option<Arc<ServerConfig>>,
+    tls_server_name: Option<String>,
 }
 
+// ============================================================================
+// Constructors
+// ============================================================================
+
 impl QuicTransport {
+    /// Creates a new named QuicTransport instance with configuration namespacing.
     pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
         let poll_capacity =
             get_namespaced_usize(config, name, "poll_capacity").unwrap_or(DEFAULT_POLL_CAPACITY);
@@ -127,6 +141,7 @@ impl QuicTransport {
         let waker = Arc::new(Waker::new(poll.registry(), Token(WAKE_ID))?);
         let (sender, receiver) = channel();
 
+        // Load TLS server config from paths if both cert and key are provided
         let server_config = if let (Ok(cert_path), Ok(key_path)) = (
             get_namespaced_string(config, name, "tls_server_cert"),
             get_namespaced_string(config, name, "tls_server_key"),
@@ -136,12 +151,20 @@ impl QuicTransport {
             None
         };
 
+        // Load TLS client config from CA cert path if provided
         let client_config =
             if let Ok(ca_cert_path) = get_namespaced_string(config, name, "tls_ca_cert") {
                 Some(build_quic_client_config(&ca_cert_path)?)
             } else {
                 None
             };
+
+        // Optional override for the TLS server name/SNI used during connect
+        let tls_server_name = match get_namespaced_string(config, name, "tls_server_name") {
+            Ok(name) => Some(name),
+            Err(::config::ConfigError::NotFound(_)) => None,
+            Err(err) => return Err(err.into()),
+        };
 
         Ok(Self {
             connections: HashMap::new(),
@@ -157,128 +180,87 @@ impl QuicTransport {
             client_endpoint: None,
             client_recv_buffer: vec![0u8; MAX_UDP_PAYLOAD],
             send_buffer: Vec::with_capacity(MAX_UDP_PAYLOAD),
-            client_config,
-            server_config,
+            tls_client_config: client_config,
+            tls_server_config: server_config,
+            tls_server_name,
         })
     }
 }
 
+// ============================================================================
+// Connection Management
+// ============================================================================
+
 impl QuicTransport {
-    fn register_connection(
-        &mut self,
-        endpoint: EndpointRef,
-        handle: ConnectionHandle,
-        connection: Connection,
-    ) -> usize {
-        let conn_id = self.next_id;
-        let quic_conn = QuicConnection::new(handle, connection, endpoint);
-        self.connections.insert(conn_id, quic_conn);
-        self.handle_map.insert((endpoint, handle), conn_id);
-        self.advance_connection_id();
-        conn_id
-    }
-
-    fn ensure_client_socket(&mut self, addr: Option<SocketAddr>) -> Result<SocketAddr, Error> {
-        if let Some(socket) = &self.client_socket {
-            let local_addr = socket.local_addr()?;
-            if let Some(expected) = addr {
-                let normalized_local = normalize_addr(local_addr);
-                let normalized_expected = normalize_addr(expected);
-
-                let addr_mismatch = if normalized_expected.port() == 0 {
-                    normalized_local.ip() != normalized_expected.ip()
-                } else {
-                    normalized_local != normalized_expected
-                };
-
-                if addr_mismatch {
-                    return Err(Error::Io(IoError::new(
-                        ErrorKind::AddrInUse,
-                        "QUIC transport already bound to a different address",
-                    )));
-                }
-            }
-            return Ok(local_addr);
-        }
-
-        let bind_addr = addr.unwrap_or_else(|| "0.0.0.0:0".parse().unwrap());
-        let std_socket = std::net::UdpSocket::bind(bind_addr)?;
-        std_socket.set_nonblocking(true)?;
-        let mut socket = UdpSocket::from_std(std_socket);
-        self.poll.registry().register(
-            &mut socket,
-            Token(CLIENT_SOCKET_TOKEN),
-            Interest::READABLE,
-        )?;
-        let local_addr = socket.local_addr()?;
-        self.client_socket = Some(socket);
-
-        let endpoint = Endpoint::new(
-            Arc::new(EndpointConfig::default()),
-            self.server_config.clone(),
-            true,
-            None,
-        );
-        self.client_endpoint = Some(endpoint);
-
-        Ok(local_addr)
-    }
-
+    /// Initiates a connection to the specified address.
     #[instrument(skip(self, addr))]
     pub fn connect<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
-        let client_config = self
-            .client_config
-            .clone()
-            .ok_or(Error::TlsClientConfigMissing)?;
+        // Fail if TLS client config wasn't loaded
+        if self.tls_client_config.is_none() {
+            return Err(Error::TlsClientConfigMissing);
+        }
+
         let peer_addr = addr
             .to_socket_addrs()?
             .next()
-            .ok_or_else(|| IoError::new(ErrorKind::InvalidInput, "Could not resolve address"))?;
+            .expect("Address resolution returned empty iterator");
 
         let _ = rustls::crypto::ring::default_provider().install_default();
 
-        let _local = self.ensure_client_socket(None)?;
+        let local_addr = self.ensure_client_socket(None)?;
         let endpoint = self
             .client_endpoint
             .as_mut()
             .expect("endpoint must exist after ensure_socket");
 
         let now = Instant::now();
-        let (handle, connection) = endpoint
-            .connect(now, client_config, peer_addr, "localhost")
-            .map_err(|err| Error::Io(IoError::new(ErrorKind::Other, err.to_string())))?;
+        let server_name = self.tls_server_name.as_deref().unwrap_or("localhost");
+
+        let (handle, connection) = endpoint.connect(
+            now,
+            self.tls_client_config.as_ref().unwrap().clone(),
+            peer_addr,
+            server_name,
+        )?;
 
         let conn_id = self.register_connection(EndpointRef::Client, handle, connection);
+        info!(id = conn_id, %local_addr, %peer_addr, "Initiating QUIC connection");
         Ok((conn_id, peer_addr))
     }
 
+    /// Starts listening for incoming QUIC connections on the specified address.
     #[instrument(skip(self, addr))]
     pub fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<(usize, SocketAddr), Error> {
-        let server_cfg = self
-            .server_config
-            .clone()
-            .ok_or(Error::TlsServerConfigMissing)?;
-        let requested = addr
+        // Fail if TLS server config wasn't loaded
+        if self.tls_server_config.is_none() {
+            return Err(Error::TlsServerConfigMissing);
+        }
+
+        let requested_addr = addr
             .to_socket_addrs()?
             .next()
-            .ok_or_else(|| IoError::new(ErrorKind::InvalidInput, "Could not resolve address"))?;
-
-        let std_socket = std::net::UdpSocket::bind(requested)?;
+            .expect("Address resolution returned empty iterator");
+        let std_socket = std::net::UdpSocket::bind(requested_addr)?;
         std_socket.set_nonblocking(true)?;
         let mut socket = UdpSocket::from_std(std_socket);
+
         let listener_id = self.next_id;
         self.poll
             .registry()
-            .register(&mut socket, Token(listener_id), Interest::READABLE)?;
-        let local_addr = socket.local_addr()?;
+            .register(&mut socket, Token(listener_id), Interest::READABLE)
+            .expect("Failed to register QUIC listener");
+        let local_addr = socket
+            .local_addr()
+            .expect("Failed to get QUIC listener local address");
+        info!(id = listener_id, %local_addr, "Listening for QUIC connections");
 
         let mut endpoint = Endpoint::new(
             Arc::new(EndpointConfig::default()),
-            Some(server_cfg.clone()),
+            Some(self.tls_server_config.as_ref().unwrap().clone()),
             true,
             None,
         );
-        endpoint.set_server_config(Some(server_cfg));
+        endpoint.set_server_config(Some(self.tls_server_config.as_ref().unwrap().clone()));
 
         let state = ListenerState {
             socket,
@@ -293,6 +275,7 @@ impl QuicTransport {
         Ok((listener_id, local_addr))
     }
 
+    /// Returns the local addresses of all listeners currently accepting connections.
     pub fn get_listener_addresses(&self) -> Vec<SocketAddr> {
         self.listeners
             .values()
@@ -301,15 +284,20 @@ impl QuicTransport {
             .collect()
     }
 
+    /// Closes a single connection by ID, issuing a QUIC close frame.
     pub fn close_connection(&mut self, id: usize) {
         if let Some(mut conn) = self.connections.remove(&id) {
             let now = Instant::now();
             conn.connection
                 .close(now, VarInt::from_u32(0), Bytes::new());
+            let local_ip = conn.connection.local_ip();
+            let peer_addr = conn.connection.remote_address();
+            info!(id, local_ip = ?local_ip, %peer_addr, "Closed QUIC connection");
             self.handle_map.remove(&(conn.endpoint, conn.handle));
         }
     }
 
+    /// Closes every active connection.
     pub fn close_all_connections(&mut self) {
         let ids: Vec<usize> = self.connections.keys().copied().collect();
         for id in ids {
@@ -317,6 +305,7 @@ impl QuicTransport {
         }
     }
 
+    /// Requests a graceful shutdown (half or full) on the given connection.
     pub fn shutdown_connection(&mut self, id: usize, how: Shutdown) {
         if let Some(conn) = self.connections.get_mut(&id) {
             let (read, write) = match how {
@@ -324,6 +313,10 @@ impl QuicTransport {
                 Shutdown::Write => (false, true),
                 Shutdown::Both => (true, true),
             };
+
+            let local_ip = conn.connection.local_ip();
+            let peer_addr = conn.connection.remote_address();
+            info!(id, how = ?how, local_ip = ?local_ip, %peer_addr, "Shutting down QUIC connection");
 
             if read {
                 conn.read_shutdown.request();
@@ -333,12 +326,12 @@ impl QuicTransport {
             }
 
             if how == Shutdown::Both {
-                debug!(id, "Initiating graceful QUIC full shutdown");
+                trace!(id, "Initiating graceful QUIC full shutdown");
                 let now = Instant::now();
                 conn.connection
                     .close(now, VarInt::from_u32(0), Bytes::new());
             } else {
-                debug!(id, read, write, "Requesting QUIC half-shutdown");
+                trace!(id, read, write, "Requesting QUIC half-shutdown");
                 Self::apply_stream_shutdowns(id, conn);
             }
         } else {
@@ -346,6 +339,7 @@ impl QuicTransport {
         }
     }
 
+    /// Applies the requested shutdown mode to every active connection.
     pub fn shutdown_all_connections(&mut self, how: Shutdown) {
         let ids: Vec<usize> = self.connections.keys().copied().collect();
         for id in ids {
@@ -353,14 +347,18 @@ impl QuicTransport {
         }
     }
 
+    /// Stops a specific listener and removes it from the poll registry.
     pub fn close_listener(&mut self, id: usize) {
         if let Some(mut state) = self.listeners.remove(&id) {
-            if let Err(err) = self.poll.registry().deregister(&mut state.socket) {
-                warn!(listener_id = id, ?err, "Failed to deregister QUIC listener");
-            }
+            self.poll
+                .registry()
+                .deregister(&mut state.socket)
+                .expect("Failed to deregister QUIC listener");
+            info!(listener_id = id, %state.local_addr, "Closed QUIC listener");
         }
     }
 
+    /// Stops all listeners.
     pub fn close_all_listeners(&mut self) {
         let ids: Vec<usize> = self.listeners.keys().copied().collect();
         for id in ids {
@@ -368,12 +366,23 @@ impl QuicTransport {
         }
     }
 
+    /// Closes all listeners and connections.
     pub fn close_all(&mut self) {
         self.close_all_connections();
         self.close_all_listeners();
     }
 
+}
+
+// ============================================================================
+// Data Operations
+// ============================================================================
+
+impl QuicTransport {
+
+    /// Sends data to a specific QUIC connection.
     pub fn send_to(&mut self, id: usize, data: Vec<u8>) {
+        debug!(id, len = data.len(), "Sending QUIC data");
         if let Some(conn) = self.connections.get_mut(&id) {
             if conn.write_shutdown.requested {
                 warn!(id, "Ignoring send after QUIC write shutdown requested");
@@ -388,18 +397,24 @@ impl QuicTransport {
         }
     }
 
+    /// Sends data to multiple QUIC connections.
     pub fn send_to_many(&mut self, ids: &[usize], data: Vec<u8>) {
+        debug!(count = ids.len(), len = data.len(), "Sending QUIC data to many");
         for &id in ids {
             self.send_to(id, data.clone());
         }
     }
 
+    /// Broadcasts data to all active QUIC connections.
     pub fn broadcast(&mut self, data: Vec<u8>) {
+        debug!(len = data.len(), "Broadcasting QUIC data");
         let ids: Vec<_> = self.connections.keys().copied().collect();
         self.send_to_many(&ids, data);
     }
 
+    /// Broadcasts data to all connections except the specified ID.
     pub fn broadcast_except(&mut self, data: Vec<u8>, except_id: usize) {
+        debug!(len = data.len(), "Broadcasting QUIC data with exception");
         let ids: Vec<_> = self
             .connections
             .keys()
@@ -409,7 +424,9 @@ impl QuicTransport {
         self.send_to_many(&ids, data);
     }
 
+    /// Broadcasts data while excluding multiple connection IDs.
     pub fn broadcast_except_many(&mut self, data: Vec<u8>, except_ids: &[usize]) {
+        debug!(except_count = except_ids.len(), len = data.len(), "Broadcasting QUIC data with many exceptions");
         let ids: Vec<_> = self
             .connections
             .keys()
@@ -419,6 +436,15 @@ impl QuicTransport {
         self.send_to_many(&ids, data);
     }
 
+}
+
+// ============================================================================
+// Event Operations
+// ============================================================================
+
+impl QuicTransport {
+
+    /// Drives the QUIC transport loop until events are available and returns them.
     pub fn fetch_events(&mut self) -> Result<Vec<TransportEvent>, Error> {
         let mut dispatch_events = Vec::new();
 
@@ -427,6 +453,7 @@ impl QuicTransport {
 
             if self.connections.is_empty() && self.listeners.is_empty() {
                 dispatch_events.push(TransportEvent::Inactive);
+                debug!(count = dispatch_events.len(), "Fetched QUIC events");
                 return Ok(dispatch_events);
             }
 
@@ -435,6 +462,7 @@ impl QuicTransport {
             self.drive_connections(&mut dispatch_events)?;
 
             if !dispatch_events.is_empty() {
+                debug!(count = dispatch_events.len(), "Fetched QUIC events");
                 return Ok(dispatch_events);
             }
 
@@ -459,6 +487,15 @@ impl QuicTransport {
         }
     }
 
+}
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+impl QuicTransport {
+
+    /// Returns a thread-safe interface for enqueuing transport requests.
     pub fn get_transport_interface(&self) -> TransportInterface {
         TransportInterface {
             sender: self.sender.clone(),
@@ -466,6 +503,15 @@ impl QuicTransport {
         }
     }
 
+}
+
+// ============================================================================
+// Internal Event Processing
+// ============================================================================
+
+impl QuicTransport {
+
+    /// Processes queued requests from `TransportInterface` senders.
     fn process_interface_requests(&mut self) {
         let requests: Vec<SendRequest> = self.receiver.try_iter().collect();
         for request in requests {
@@ -501,6 +547,7 @@ impl QuicTransport {
         }
     }
 
+    /// Pumps datagrams for every active listener endpoint.
     fn handle_all_listener_udp(&mut self) -> Result<(), Error> {
         let listener_ids: Vec<usize> = self.listeners.keys().copied().collect();
         for id in listener_ids {
@@ -509,6 +556,7 @@ impl QuicTransport {
         Ok(())
     }
 
+    /// Handles pending UDP datagrams for a single endpoint.
     fn handle_endpoint_udp(&mut self, source: EndpointRef) -> Result<(), Error> {
         while let Some((source_ref, peer, now, event, response_buf)) =
             self.poll_endpoint_datagram(source)?
@@ -516,10 +564,10 @@ impl QuicTransport {
             if let Some(event) = event {
                 match source_ref {
                     EndpointRef::Client => {
-                        debug!(peer = ?peer, "QUIC datagram event (client)");
+                        trace!(peer = ?peer, "QUIC datagram event (client)");
                     }
                     EndpointRef::Listener(id) => {
-                        debug!(peer = ?peer, listener_id = id, "QUIC datagram event (listener)");
+                        trace!(peer = ?peer, listener_id = id, "QUIC datagram event (listener)");
                     }
                 }
 
@@ -529,6 +577,7 @@ impl QuicTransport {
         Ok(())
     }
 
+    /// Polls a UDP socket for datagrams and returns the parsed QUIC event, if any.
     fn poll_endpoint_datagram(
         &mut self,
         source: EndpointRef,
@@ -565,9 +614,10 @@ impl QuicTransport {
                 }
             }
             EndpointRef::Listener(listener_id) => {
-                let Some(state) = self.listeners.get_mut(&listener_id) else {
-                    return Ok(None);
-                };
+                let state = self
+                    .listeners
+                    .get_mut(&listener_id)
+                    .expect("Listener should exist when polling datagram");
 
                 match state.socket.recv_from(&mut state.recv_buffer) {
                     Ok((len, peer)) => {
@@ -593,22 +643,35 @@ impl QuicTransport {
         }
     }
 
+    /// Returns a mutable reference to the QUIC endpoint for the provided handle.
     fn endpoint_mut(&mut self, endpoint: EndpointRef) -> Option<&mut Endpoint> {
         match endpoint {
             EndpointRef::Client => self.client_endpoint.as_mut(),
             EndpointRef::Listener(id) => {
-                self.listeners.get_mut(&id).map(|state| &mut state.endpoint)
+                let state = self
+                    .listeners
+                    .get_mut(&id)
+                    .expect("Listener should exist for endpoint mutation");
+                Some(&mut state.endpoint)
             }
         }
     }
 
+    /// Returns the UDP socket associated with an endpoint.
     fn socket_mut(&mut self, endpoint: EndpointRef) -> Option<&mut UdpSocket> {
         match endpoint {
             EndpointRef::Client => self.client_socket.as_mut(),
-            EndpointRef::Listener(id) => self.listeners.get_mut(&id).map(|state| &mut state.socket),
+            EndpointRef::Listener(id) => {
+                let state = self
+                    .listeners
+                    .get_mut(&id)
+                    .expect("Listener should exist for socket mutation");
+                Some(&mut state.socket)
+            }
         }
     }
 
+    /// Applies a `DatagramEvent` emitted by `quinn-proto` to the corresponding connection/listener.
     fn process_datagram_event(
         &mut self,
         source: EndpointRef,
@@ -618,7 +681,7 @@ impl QuicTransport {
     ) -> Result<(), Error> {
         match event {
             DatagramEvent::ConnectionEvent(handle, conn_event) => {
-                debug!(handle = ?handle, "QUIC connection event");
+                trace!(handle = ?handle, "QUIC connection event");
                 if let Some(&id) = self.handle_map.get(&(source, handle)) {
                     if let Some(conn) = self.connections.get_mut(&id) {
                         conn.connection.handle_event(conn_event);
@@ -626,37 +689,48 @@ impl QuicTransport {
                 }
             }
             DatagramEvent::NewConnection(incoming) => {
-                debug!("QUIC incoming connection");
+                trace!("QUIC incoming connection");
                 self.accept_connection(source, incoming, now)?;
             }
             DatagramEvent::Response(transmit) => {
-                debug!(destination = ?transmit.destination, len = transmit.size, "QUIC transmit from connection");
+                trace!(destination = ?transmit.destination, len = transmit.size, "QUIC transmit from connection");
                 self.send_transmit(source, &transmit, &response_buf[..transmit.size])?;
             }
         }
         Ok(())
     }
+    
+    /// Accepts an incoming QUIC connection and registers it with transport state.
     fn accept_connection(
         &mut self,
         source: EndpointRef,
         incoming: Incoming,
         now: Instant,
     ) -> Result<(), Error> {
-        let endpoint = match source {
+        let (endpoint, listener_meta) = match source {
             EndpointRef::Client => {
                 warn!("Ignoring unexpected incoming connection on client endpoint");
                 return Ok(());
             }
-            EndpointRef::Listener(id) => match self.listeners.get_mut(&id) {
-                Some(state) => &mut state.endpoint,
-                None => return Ok(()),
-            },
+            EndpointRef::Listener(id) => {
+                let state = self
+                    .listeners
+                    .get_mut(&id)
+                    .expect("Listener should exist when accepting connection");
+                (&mut state.endpoint, Some((id, state.local_addr)))
+            }
         };
 
         let mut buf = Vec::with_capacity(MAX_UDP_PAYLOAD);
+        let peer_addr = incoming.remote_address();
         match endpoint.accept(incoming, now, &mut buf, None) {
             Ok((handle, connection)) => {
-                self.register_connection(source, handle, connection);
+                let conn_id = self.register_connection(source, handle, connection);
+                if let Some((listener_id, local_addr)) = listener_meta {
+                    info!(id = conn_id, listener_id, %local_addr, %peer_addr, "Accepting QUIC connection");
+                } else {
+                    info!(id = conn_id, %peer_addr, "Accepting QUIC connection");
+                }
             }
             Err(AcceptError { cause, response }) => {
                 if let Some(transmit) = response {
@@ -668,9 +742,11 @@ impl QuicTransport {
         Ok(())
     }
 
+    /// Advances all active connections, generating transmit packets and dispatch events.
     fn drive_connections(&mut self, dispatch: &mut Vec<TransportEvent>) -> Result<(), Error> {
         let now = Instant::now();
         let mut old_connections = HashMap::new();
+        // Swap the map out so we can mutate connection state without borrow conflicts.
         std::mem::swap(&mut self.connections, &mut old_connections);
         let mut send_buffer = std::mem::take(&mut self.send_buffer);
 
@@ -694,14 +770,18 @@ impl QuicTransport {
                         if !conn.connected {
                             conn.connected = true;
                             dispatch.push(TransportEvent::Connected { id });
+                            let local_ip = conn.connection.local_ip();
+                            let peer_addr = conn.connection.remote_address();
+                            info!(id, local_ip = ?local_ip, %peer_addr, "QUIC connection established");
                         }
                         Self::ensure_stream_open(id, &mut conn);
-                        debug!(id, "QUIC connection established");
                     }
-                    Event::ConnectionLost { .. } => {
+                    Event::ConnectionLost { reason } => {
                         alive = false;
                         self.handle_map.remove(&(conn.endpoint, conn.handle));
-                        debug!(id, was_connected = conn.connected, "QUIC connection lost");
+                        let local_ip = conn.connection.local_ip();
+                        let peer_addr = conn.connection.remote_address();
+                        info!(id, local_ip = ?local_ip, %peer_addr, ?reason, "QUIC connection lost");
                         if conn.connected {
                             dispatch.push(TransportEvent::Disconnected { id });
                         } else {
@@ -710,7 +790,7 @@ impl QuicTransport {
                         break;
                     }
                     Event::Stream(stream_event) => {
-                        debug!(id, ?stream_event, "QUIC stream event");
+                        trace!(id, ?stream_event, "QUIC stream event");
                         Self::handle_stream_event(id, &mut conn, stream_event, dispatch);
                     }
                     Event::DatagramReceived => {}
@@ -741,6 +821,7 @@ impl QuicTransport {
         Ok(())
     }
 
+    /// Delivers pending endpoint events from `quinn-proto` back into the connection.
     fn pump_endpoint_events(&mut self, conn: &mut QuicConnection) -> Result<(), Error> {
         let Some(endpoint) = self.endpoint_mut(conn.endpoint) else {
             return Ok(());
@@ -753,6 +834,15 @@ impl QuicTransport {
         Ok(())
     }
 
+}
+
+// ============================================================================
+// Internal Connection I/O
+// ============================================================================
+
+impl QuicTransport {
+
+    /// Handles `quinn-proto` stream events and converts them into transport actions.
     fn handle_stream_event(
         id: usize,
         conn: &mut QuicConnection,
@@ -762,7 +852,7 @@ impl QuicTransport {
         match stream_event {
             StreamEvent::Opened { dir } => {
                 if let Some(accepted) = conn.connection.streams().accept(dir) {
-                    debug!(id, ?dir, stream_id = ?accepted, "QUIC accepted incoming stream");
+                    trace!(id, ?dir, stream_id = ?accepted, "QUIC accepted incoming stream");
                     if dir == Dir::Bi {
                         if conn.stream_id.is_none() {
                             conn.stream_id = Some(accepted);
@@ -796,6 +886,7 @@ impl QuicTransport {
         }
     }
 
+    /// Ensures a bidirectional stream exists and kicks off buffered sends/shutdowns.
     fn ensure_stream_open(id: usize, conn: &mut QuicConnection) {
         if conn.stream_id.is_none() {
             if let Some(stream_id) = conn.connection.streams().open(Dir::Bi) {
@@ -806,6 +897,7 @@ impl QuicTransport {
         Self::apply_stream_shutdowns(id, conn);
     }
 
+    /// Applies pending half-shutdown requests to the active stream.
     fn apply_stream_shutdowns(id: usize, conn: &mut QuicConnection) {
         if conn.stream_id.is_none() {
             return;
@@ -818,6 +910,7 @@ impl QuicTransport {
         }
     }
 
+    /// Finishes the send side of the stream once all buffered bytes are flushed.
     fn finish_send_stream(id: usize, conn: &mut QuicConnection) {
         let Some(stream_id) = conn.stream_id else {
             return;
@@ -826,7 +919,7 @@ impl QuicTransport {
         match conn.connection.send_stream(stream_id).finish() {
             Ok(()) => {
                 conn.write_shutdown.mark_applied();
-                debug!(id, stream_id = ?stream_id, "QUIC send stream finished");
+                trace!(id, stream_id = ?stream_id, "QUIC send stream finished");
             }
             Err(err) => {
                 warn!(id, ?err, "Failed to finish QUIC send stream");
@@ -834,6 +927,7 @@ impl QuicTransport {
         }
     }
 
+    /// Issues a STOP_SENDING frame for the receive side when read shutdown is requested.
     fn stop_recv_stream(id: usize, conn: &mut QuicConnection) {
         let Some(stream_id) = conn.stream_id else {
             return;
@@ -842,7 +936,7 @@ impl QuicTransport {
         match conn.connection.recv_stream(stream_id).stop(err_code) {
             Ok(()) => {
                 conn.read_shutdown.mark_applied();
-                debug!(id, stream_id = ?stream_id, "QUIC recv stream stopped");
+                trace!(id, stream_id = ?stream_id, "QUIC recv stream stopped");
             }
             Err(err) => {
                 warn!(id, ?err, "Failed to stop QUIC recv stream");
@@ -850,6 +944,7 @@ impl QuicTransport {
         }
     }
 
+    /// Reads all available bytes from the stream and emits transport data events.
     fn drain_recv_stream(
         id: usize,
         conn: &mut QuicConnection,
@@ -857,7 +952,7 @@ impl QuicTransport {
         dispatch: &mut Vec<TransportEvent>,
     ) {
         if conn.read_shutdown.requested {
-            debug!(id, "Dropping incoming data after read shutdown request");
+            trace!(id, "Dropping incoming data after read shutdown request");
             return;
         }
         let mut buf = Vec::new();
@@ -878,6 +973,7 @@ impl QuicTransport {
         }
     }
 
+    /// Writes buffered application data into the QUIC send stream.
     fn flush_send_buffer(id: usize, conn: &mut QuicConnection) {
         let Some(stream_id) = conn.stream_id else {
             return;
@@ -893,7 +989,7 @@ impl QuicTransport {
                 match conn.connection.send_stream(stream_id).write(buf) {
                     Ok(0) => return,
                     Ok(written) => {
-                        debug!(id, written, "QUIC wrote bytes");
+                        trace!(id, written, "QUIC wrote bytes");
                         Ok(written)
                     }
                     Err(WriteError::Blocked) => Err(WriteError::Blocked),
@@ -914,6 +1010,7 @@ impl QuicTransport {
         }
     }
 
+    /// Sends a `quinn-proto` transmit over the correct UDP socket, handling segmentation if needed.
     fn send_transmit(
         &mut self,
         endpoint: EndpointRef,
@@ -936,6 +1033,7 @@ impl QuicTransport {
         Ok(())
     }
 
+    /// Returns the nearest connection timeout to use for poll deadlines.
     fn next_timeout(&self) -> Option<Duration> {
         let now = Instant::now();
         let mut deadline: Option<Duration> = None;
@@ -954,6 +1052,68 @@ impl QuicTransport {
         deadline
     }
 
+}
+
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+impl QuicTransport {
+
+    /// Lazily creates the shared client UDP socket/endpoint and returns its local address.
+    fn ensure_client_socket(
+        &mut self,
+        requested_addr: Option<SocketAddr>,
+    ) -> Result<SocketAddr, Error> {
+        if let Some(socket) = self.client_socket.as_mut() {
+            let addr = socket
+                .local_addr()
+                .expect("Failed to get QUIC client socket local address");
+            return Ok(normalize_addr(addr));
+        }
+
+        let bind_addr = requested_addr.unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 0)));
+        let std_socket = std::net::UdpSocket::bind(bind_addr)?;
+        std_socket.set_nonblocking(true)?;
+        let mut socket = UdpSocket::from_std(std_socket);
+        self.poll
+            .registry()
+            .register(&mut socket, Token(CLIENT_SOCKET_TOKEN), Interest::READABLE)
+            .expect("Failed to register QUIC client socket");
+        let local_addr = socket
+            .local_addr()
+            .expect("Failed to get QUIC client socket local address");
+        self.client_socket = Some(socket);
+
+        if self.client_endpoint.is_none() {
+            let endpoint = Endpoint::new(
+                Arc::new(EndpointConfig::default()),
+                None,
+                false,
+                None,
+            );
+            self.client_endpoint = Some(endpoint);
+        }
+
+        Ok(normalize_addr(local_addr))
+    }
+
+    /// Inserts a new connection into the tracking maps and returns its ID.
+    fn register_connection(
+        &mut self,
+        source: EndpointRef,
+        handle: ConnectionHandle,
+        connection: Connection,
+    ) -> usize {
+        let conn_id = self.next_id;
+        self.connections
+            .insert(conn_id, QuicConnection::new(handle, connection, source));
+        self.handle_map.insert((source, handle), conn_id);
+        self.advance_connection_id();
+        conn_id
+    }
+
+    /// Advances `next_id`, skipping IDs that collide with active resources.
     fn advance_connection_id(&mut self) {
         loop {
             self.next_id = self
@@ -968,6 +1128,13 @@ impl QuicTransport {
         }
     }
 }
+
+// ============================================================================
+// Transport Trait Implementation
+// ============================================================================
+//
+// Like the TLS transport, this impl simply forwards into the inherent methods
+// above so that all business logic lives in one place.
 
 impl TransportImpl for QuicTransport {
     fn connect_impl(&mut self, addr: SocketAddr) -> Result<(usize, SocketAddr), Error> {
