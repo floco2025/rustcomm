@@ -371,7 +371,6 @@ impl QuicTransport {
         self.close_all_connections();
         self.close_all_listeners();
     }
-
 }
 
 // ============================================================================
@@ -379,7 +378,6 @@ impl QuicTransport {
 // ============================================================================
 
 impl QuicTransport {
-
     /// Sends data to a specific QUIC connection.
     pub fn send_to(&mut self, id: usize, data: Vec<u8>) {
         debug!(id, len = data.len(), "Sending QUIC data");
@@ -399,7 +397,11 @@ impl QuicTransport {
 
     /// Sends data to multiple QUIC connections.
     pub fn send_to_many(&mut self, ids: &[usize], data: Vec<u8>) {
-        debug!(count = ids.len(), len = data.len(), "Sending QUIC data to many");
+        debug!(
+            count = ids.len(),
+            len = data.len(),
+            "Sending QUIC data to many"
+        );
         for &id in ids {
             self.send_to(id, data.clone());
         }
@@ -426,7 +428,11 @@ impl QuicTransport {
 
     /// Broadcasts data while excluding multiple connection IDs.
     pub fn broadcast_except_many(&mut self, data: Vec<u8>, except_ids: &[usize]) {
-        debug!(except_count = except_ids.len(), len = data.len(), "Broadcasting QUIC data with many exceptions");
+        debug!(
+            except_count = except_ids.len(),
+            len = data.len(),
+            "Broadcasting QUIC data with many exceptions"
+        );
         let ids: Vec<_> = self
             .connections
             .keys()
@@ -435,7 +441,6 @@ impl QuicTransport {
             .collect();
         self.send_to_many(&ids, data);
     }
-
 }
 
 // ============================================================================
@@ -443,7 +448,6 @@ impl QuicTransport {
 // ============================================================================
 
 impl QuicTransport {
-
     /// Drives the QUIC transport loop until events are available and returns them.
     pub fn fetch_events(&mut self) -> Result<Vec<TransportEvent>, Error> {
         let mut dispatch_events = Vec::new();
@@ -486,7 +490,6 @@ impl QuicTransport {
             }
         }
     }
-
 }
 
 // ============================================================================
@@ -494,7 +497,6 @@ impl QuicTransport {
 // ============================================================================
 
 impl QuicTransport {
-
     /// Returns a thread-safe interface for enqueuing transport requests.
     pub fn get_transport_interface(&self) -> TransportInterface {
         TransportInterface {
@@ -502,7 +504,6 @@ impl QuicTransport {
             waker: self.waker.clone(),
         }
     }
-
 }
 
 // ============================================================================
@@ -510,7 +511,6 @@ impl QuicTransport {
 // ============================================================================
 
 impl QuicTransport {
-
     /// Processes queued requests from `TransportInterface` senders.
     fn process_interface_requests(&mut self) {
         let requests: Vec<SendRequest> = self.receiver.try_iter().collect();
@@ -699,7 +699,7 @@ impl QuicTransport {
         }
         Ok(())
     }
-    
+
     /// Accepts an incoming QUIC connection and registers it with transport state.
     fn accept_connection(
         &mut self,
@@ -833,7 +833,6 @@ impl QuicTransport {
         }
         Ok(())
     }
-
 }
 
 // ============================================================================
@@ -841,7 +840,6 @@ impl QuicTransport {
 // ============================================================================
 
 impl QuicTransport {
-
     /// Handles `quinn-proto` stream events and converts them into transport actions.
     fn handle_stream_event(
         id: usize,
@@ -1051,7 +1049,6 @@ impl QuicTransport {
         }
         deadline
     }
-
 }
 
 // ============================================================================
@@ -1059,7 +1056,6 @@ impl QuicTransport {
 // ============================================================================
 
 impl QuicTransport {
-
     /// Lazily creates the shared client UDP socket/endpoint and returns its local address.
     fn ensure_client_socket(
         &mut self,
@@ -1086,12 +1082,7 @@ impl QuicTransport {
         self.client_socket = Some(socket);
 
         if self.client_endpoint.is_none() {
-            let endpoint = Endpoint::new(
-                Arc::new(EndpointConfig::default()),
-                None,
-                false,
-                None,
-            );
+            let endpoint = Endpoint::new(Arc::new(EndpointConfig::default()), None, false, None);
             self.client_endpoint = Some(endpoint);
         }
 
