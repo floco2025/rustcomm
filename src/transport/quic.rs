@@ -862,19 +862,26 @@ impl QuicTransport {
         };
 
         while !conn.send_buf.is_empty() {
-            let (front, back) = conn.send_buf.as_slices();
-            let chunk = if !front.is_empty() { front } else { back };
-            if chunk.is_empty() {
-                break;
-            }
+            let write_result = {
+                let buf = conn.send_buf.make_contiguous();
+                if buf.is_empty() {
+                    break;
+                }
 
-            match conn.connection.send_stream(stream_id).write(chunk) {
-                Ok(0) => break,
-                Ok(written) => {
-                    debug!(id, written, "QUIC wrote bytes");
-                    for _ in 0..written {
-                        conn.send_buf.pop_front();
+                match conn.connection.send_stream(stream_id).write(buf) {
+                    Ok(0) => return,
+                    Ok(written) => {
+                        debug!(id, written, "QUIC wrote bytes");
+                        Ok(written)
                     }
+                    Err(WriteError::Blocked) => Err(WriteError::Blocked),
+                    Err(err) => Err(err),
+                }
+            };
+
+            match write_result {
+                Ok(written) => {
+                    conn.send_buf.drain(..written);
                 }
                 Err(WriteError::Blocked) => break,
                 Err(err) => {
