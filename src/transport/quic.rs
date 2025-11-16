@@ -610,9 +610,8 @@ impl QuicTransport {
                 self.accept_connection(source, incoming, now)?;
             }
             DatagramEvent::Response(transmit) => {
-                let payload = response_buf[..transmit.size].to_vec();
                 debug!(destination = ?transmit.destination, len = transmit.size, "QUIC transmit from connection");
-                self.send_transmit(source, &transmit, &payload)?;
+                self.send_transmit(source, &transmit, &response_buf[..transmit.size])?;
             }
         }
         Ok(())
@@ -653,17 +652,18 @@ impl QuicTransport {
         let now = Instant::now();
         let mut old_connections = HashMap::new();
         std::mem::swap(&mut self.connections, &mut old_connections);
+        let mut send_buffer = std::mem::take(&mut self.send_buffer);
 
         for (id, mut conn) in old_connections.into_iter() {
             self.pump_endpoint_events(&mut conn)?;
 
             while let Some(transmit) =
                 conn.connection
-                    .poll_transmit(now, MAX_DATAGRAMS, &mut self.send_buffer)
+                    .poll_transmit(now, MAX_DATAGRAMS, &mut send_buffer)
             {
-                let payload = self.send_buffer[..transmit.size].to_vec();
-                self.send_transmit(conn.endpoint, &transmit, &payload)?;
-                self.send_buffer.clear();
+                let payload = &send_buffer[..transmit.size];
+                self.send_transmit(conn.endpoint, &transmit, payload)?;
+                send_buffer.clear();
             }
 
             let mut alive = true;
@@ -715,6 +715,8 @@ impl QuicTransport {
 
             self.connections.insert(id, conn);
         }
+
+        self.send_buffer = send_buffer;
 
         Ok(())
     }
