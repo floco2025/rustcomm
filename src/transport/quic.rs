@@ -900,10 +900,9 @@ impl QuicTransport {
         transmit: &quinn_proto::Transmit,
         payload: &[u8],
     ) -> Result<(), Error> {
-        let Some(socket) = self.socket_mut(endpoint) else {
-            warn!(?endpoint, "QUIC socket unavailable for transmit");
-            return Ok(());
-        };
+        let socket = self
+            .socket_mut(endpoint)
+            .expect("QUIC socket unavailable for transmit");
         if let Some(segment) = transmit.segment_size {
             let mut offset = 0;
             while offset < payload.len() {
