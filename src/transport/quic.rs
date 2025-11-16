@@ -120,8 +120,8 @@ pub(super) struct QuicTransport {
 
 impl QuicTransport {
     pub fn new_named(config: &Config, name: &str) -> Result<Self, Error> {
-        let poll_capacity = get_namespaced_usize(config, name, "poll_capacity")
-            .unwrap_or(DEFAULT_POLL_CAPACITY);
+        let poll_capacity =
+            get_namespaced_usize(config, name, "poll_capacity").unwrap_or(DEFAULT_POLL_CAPACITY);
 
         let poll = Poll::new()?;
         let waker = Arc::new(Waker::new(poll.registry(), Token(WAKE_ID))?);
@@ -205,9 +205,11 @@ impl QuicTransport {
         let std_socket = std::net::UdpSocket::bind(bind_addr)?;
         std_socket.set_nonblocking(true)?;
         let mut socket = UdpSocket::from_std(std_socket);
-        self.poll
-            .registry()
-            .register(&mut socket, Token(CLIENT_SOCKET_TOKEN), Interest::READABLE)?;
+        self.poll.registry().register(
+            &mut socket,
+            Token(CLIENT_SOCKET_TOKEN),
+            Interest::READABLE,
+        )?;
         let local_addr = socket.local_addr()?;
         self.client_socket = Some(socket);
 
@@ -530,8 +532,16 @@ impl QuicTransport {
     fn poll_endpoint_datagram(
         &mut self,
         source: EndpointRef,
-    ) -> Result<Option<(EndpointRef, SocketAddr, Instant, Option<DatagramEvent>, Vec<u8>)>, Error>
-    {
+    ) -> Result<
+        Option<(
+            EndpointRef,
+            SocketAddr,
+            Instant,
+            Option<DatagramEvent>,
+            Vec<u8>,
+        )>,
+        Error,
+    > {
         match source {
             EndpointRef::Client => {
                 let Some(socket) = self.client_socket.as_mut() else {
@@ -546,7 +556,8 @@ impl QuicTransport {
                         let bytes = BytesMut::from(&self.client_recv_buffer[..len]);
                         let mut response_buf = Vec::with_capacity(MAX_UDP_PAYLOAD);
                         let now = Instant::now();
-                        let event = endpoint.handle(now, peer, None, None, bytes, &mut response_buf);
+                        let event =
+                            endpoint.handle(now, peer, None, None, bytes, &mut response_buf);
                         Ok(Some((EndpointRef::Client, peer, now, event, response_buf)))
                     }
                     Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(None),
@@ -563,10 +574,17 @@ impl QuicTransport {
                         let bytes = BytesMut::from(&state.recv_buffer[..len]);
                         let mut response_buf = Vec::with_capacity(MAX_UDP_PAYLOAD);
                         let now = Instant::now();
-                        let event = state
-                            .endpoint
-                            .handle(now, peer, None, None, bytes, &mut response_buf);
-                        Ok(Some((EndpointRef::Listener(listener_id), peer, now, event, response_buf)))
+                        let event =
+                            state
+                                .endpoint
+                                .handle(now, peer, None, None, bytes, &mut response_buf);
+                        Ok(Some((
+                            EndpointRef::Listener(listener_id),
+                            peer,
+                            now,
+                            event,
+                            response_buf,
+                        )))
                     }
                     Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(None),
                     Err(err) => Err(err.into()),
@@ -578,7 +596,9 @@ impl QuicTransport {
     fn endpoint_mut(&mut self, endpoint: EndpointRef) -> Option<&mut Endpoint> {
         match endpoint {
             EndpointRef::Client => self.client_endpoint.as_mut(),
-            EndpointRef::Listener(id) => self.listeners.get_mut(&id).map(|state| &mut state.endpoint),
+            EndpointRef::Listener(id) => {
+                self.listeners.get_mut(&id).map(|state| &mut state.endpoint)
+            }
         }
     }
 
