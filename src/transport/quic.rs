@@ -164,6 +164,20 @@ impl QuicTransport {
 }
 
 impl QuicTransport {
+    fn register_connection(
+        &mut self,
+        endpoint: EndpointRef,
+        handle: ConnectionHandle,
+        connection: Connection,
+    ) -> usize {
+        let conn_id = self.next_id;
+        let quic_conn = QuicConnection::new(handle, connection, endpoint);
+        self.connections.insert(conn_id, quic_conn);
+        self.handle_map.insert((endpoint, handle), conn_id);
+        self.advance_connection_id();
+        conn_id
+    }
+
     fn ensure_client_socket(&mut self, addr: Option<SocketAddr>) -> Result<SocketAddr, Error> {
         if let Some(socket) = &self.client_socket {
             let local_addr = socket.local_addr()?;
@@ -232,12 +246,7 @@ impl QuicTransport {
             .connect(now, client_config, peer_addr, "localhost")
             .map_err(|err| Error::Io(IoError::new(ErrorKind::Other, err.to_string())))?;
 
-        let conn_id = self.next_id;
-        let quic_conn = QuicConnection::new(handle, connection, EndpointRef::Client);
-        self.connections.insert(conn_id, quic_conn);
-        self.handle_map.insert((EndpointRef::Client, handle), conn_id);
-        self.advance_connection_id();
-
+        let conn_id = self.register_connection(EndpointRef::Client, handle, connection);
         Ok((conn_id, peer_addr))
     }
 
@@ -499,80 +508,69 @@ impl QuicTransport {
     }
 
     fn handle_endpoint_udp(&mut self, source: EndpointRef) -> Result<(), Error> {
-        loop {
-            let event_info = match source {
-                EndpointRef::Client => {
-                    let Some(socket) = self.client_socket.as_mut() else {
-                        return Ok(());
-                    };
-                    let Some(endpoint) = self.client_endpoint.as_mut() else {
-                        return Ok(());
-                    };
-
-                    match socket.recv_from(&mut self.client_recv_buffer) {
-                        Ok((len, peer)) => {
-                            let bytes = BytesMut::from(&self.client_recv_buffer[..len]);
-                            let mut response_buf = Vec::with_capacity(MAX_UDP_PAYLOAD);
-                            let now = Instant::now();
-                            let event = endpoint.handle(
-                                now,
-                                peer,
-                                None,
-                                None,
-                                bytes,
-                                &mut response_buf,
-                            );
-                            Some((peer, now, event, response_buf, None))
-                        }
-                        Err(err) if err.kind() == ErrorKind::WouldBlock => return Ok(()),
-                        Err(err) => return Err(err.into()),
+        while let Some((source_ref, peer, now, event, response_buf)) =
+            self.poll_endpoint_datagram(source)?
+        {
+            if let Some(event) = event {
+                match source_ref {
+                    EndpointRef::Client => {
+                        debug!(peer = ?peer, "QUIC datagram event (client)");
+                    }
+                    EndpointRef::Listener(id) => {
+                        debug!(peer = ?peer, listener_id = id, "QUIC datagram event (listener)");
                     }
                 }
-                EndpointRef::Listener(listener_id) => {
-                    let Some(state) = self.listeners.get_mut(&listener_id) else {
-                        return Ok(());
-                    };
 
-                    match state.socket.recv_from(&mut state.recv_buffer) {
-                        Ok((len, peer)) => {
-                            let bytes = BytesMut::from(&state.recv_buffer[..len]);
-                            let mut response_buf = Vec::with_capacity(MAX_UDP_PAYLOAD);
-                            let now = Instant::now();
-                            let event = state
-                                .endpoint
-                                .handle(now, peer, None, None, bytes, &mut response_buf);
-                            Some((peer, now, event, response_buf, Some(listener_id)))
-                        }
-                        Err(err) if err.kind() == ErrorKind::WouldBlock => return Ok(()),
-                        Err(err) => return Err(err.into()),
+                self.process_datagram_event(source_ref, event, now, response_buf.as_slice())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn poll_endpoint_datagram(
+        &mut self,
+        source: EndpointRef,
+    ) -> Result<Option<(EndpointRef, SocketAddr, Instant, Option<DatagramEvent>, Vec<u8>)>, Error>
+    {
+        match source {
+            EndpointRef::Client => {
+                let Some(socket) = self.client_socket.as_mut() else {
+                    return Ok(None);
+                };
+                let Some(endpoint) = self.client_endpoint.as_mut() else {
+                    return Ok(None);
+                };
+
+                match socket.recv_from(&mut self.client_recv_buffer) {
+                    Ok((len, peer)) => {
+                        let bytes = BytesMut::from(&self.client_recv_buffer[..len]);
+                        let mut response_buf = Vec::with_capacity(MAX_UDP_PAYLOAD);
+                        let now = Instant::now();
+                        let event = endpoint.handle(now, peer, None, None, bytes, &mut response_buf);
+                        Ok(Some((EndpointRef::Client, peer, now, event, response_buf)))
                     }
+                    Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(None),
+                    Err(err) => Err(err.into()),
                 }
-            };
+            }
+            EndpointRef::Listener(listener_id) => {
+                let Some(state) = self.listeners.get_mut(&listener_id) else {
+                    return Ok(None);
+                };
 
-            if let Some((peer, now, event, response_buf, listener_id)) = event_info {
-                let source_ref = listener_id
-                    .map(EndpointRef::Listener)
-                    .unwrap_or(EndpointRef::Client);
-
-                if let Some(event) = event {
-                    match source_ref {
-                        EndpointRef::Client => {
-                            debug!(peer = ?peer, "QUIC datagram event (client)");
-                        }
-                        EndpointRef::Listener(id) => {
-                            debug!(peer = ?peer, listener_id = id, "QUIC datagram event (listener)");
-                        }
+                match state.socket.recv_from(&mut state.recv_buffer) {
+                    Ok((len, peer)) => {
+                        let bytes = BytesMut::from(&state.recv_buffer[..len]);
+                        let mut response_buf = Vec::with_capacity(MAX_UDP_PAYLOAD);
+                        let now = Instant::now();
+                        let event = state
+                            .endpoint
+                            .handle(now, peer, None, None, bytes, &mut response_buf);
+                        Ok(Some((EndpointRef::Listener(listener_id), peer, now, event, response_buf)))
                     }
-
-                    self.process_datagram_event(
-                        source_ref,
-                        event,
-                        now,
-                        response_buf.as_slice(),
-                    )?;
+                    Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(None),
+                    Err(err) => Err(err.into()),
                 }
-            } else {
-                return Ok(());
             }
         }
     }
@@ -639,11 +637,7 @@ impl QuicTransport {
         let mut buf = Vec::with_capacity(MAX_UDP_PAYLOAD);
         match endpoint.accept(incoming, now, &mut buf, None) {
             Ok((handle, connection)) => {
-                let conn_id = self.next_id;
-                let quic_conn = QuicConnection::new(handle, connection, source);
-                self.connections.insert(conn_id, quic_conn);
-                self.handle_map.insert((source, handle), conn_id);
-                self.advance_connection_id();
+                self.register_connection(source, handle, connection);
             }
             Err(AcceptError { cause, response }) => {
                 if let Some(transmit) = response {
