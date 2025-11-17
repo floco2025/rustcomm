@@ -143,6 +143,7 @@ fn run_peer(name: &str, mut transport: Transport, connect_addrs: Vec<SocketAddr>
                                 "[{name}] All data received! Received {expected_data_size} bytes from {expected_connections} connections"
                             );
                         }
+
                         transport.shutdown_all_connections(Shutdown::Read);
                     }
                 }
