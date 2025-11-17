@@ -112,39 +112,3 @@ pub enum Error {
     #[error("Invalid transport type '{got}', expected one of: {}", .valid.join(", "))]
     InvalidTransportType { got: String, valid: Vec<String> },
 }
-
-// ============================================================================
-// Request-Response Errors
-// ============================================================================
-
-/// Errors that can occur during request-response operations.
-///
-/// These errors are specific to the async request-response layer provided by
-/// the `rpc` feature. They represent failure modes when awaiting responses to
-/// sent requests.
-#[derive(Error, Debug)]
-pub enum RequestError {
-    /// The connection was closed before receiving a response.
-    ///
-    /// This happens when the peer disconnects or the connection is lost while a
-    /// request is pending.
-    #[error("Connection closed")]
-    ConnectionClosed,
-
-    /// Received a response of the wrong type.
-    ///
-    /// This occurs when the response message type doesn't match the expected
-    /// type parameter provided to `send_request()`.
-    #[error("Expected response type {expected}, but received a different type")]
-    WrongResponseType {
-        /// The expected response type name.
-        expected: &'static str,
-    },
-
-    /// The event loop was dropped unexpectedly.
-    ///
-    /// This should not happen during normal operation and indicates an internal
-    /// error.
-    #[error("Event loop terminated unexpectedly")]
-    EventLoopTerminated,
-}

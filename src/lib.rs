@@ -240,9 +240,6 @@ pub(crate) mod error;
 pub(crate) mod messenger;
 pub mod transport;
 
-#[cfg(feature = "rpc")]
-pub mod rpc;
-
 // These are the intended public API
 pub use error::Error;
 pub use messenger::{
@@ -250,12 +247,6 @@ pub use messenger::{
     MessengerEvent, MessengerInterface,
 };
 pub use transport::{Transport, TransportEvent, TransportInterface};
-
-// Request-response support (optional feature)
-#[cfg(feature = "rpc")]
-pub use error::RequestError;
-#[cfg(feature = "rpc")]
-pub use rpc::{RpcContext, RpcMessenger};
 
 // Bincode support (optional feature, enabled by default)
 #[cfg(feature = "bincode")]
@@ -270,12 +261,6 @@ pub mod prelude {
         MessengerEvent, MessengerInterface,
     };
     pub use crate::transport::{Transport, TransportEvent, TransportInterface};
-
-    // RPC support (optional feature)
-    #[cfg(feature = "rpc")]
-    pub use crate::error::RequestError;
-    #[cfg(feature = "rpc")]
-    pub use crate::rpc::{RpcContext, RpcMessenger};
 
     // Bincode support (optional feature, enabled by default)
     #[cfg(feature = "bincode")]

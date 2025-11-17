@@ -3,10 +3,9 @@
 A lightweight, high-performance communication library built on
 [mio](https://docs.rs/mio) with TCP and TLS transport support.
 
-- **Three-layer architecture:**
+- **Layered architecture:**
   - **Transport:** Low-level API for raw bytes over TCP/TLS
   - **Messenger:** Type-safe serialized messages with any serialization format
-  - **RpcMessenger:** Async RPC with request-response correlation (optional `rpc` feature)
 - **Peer-to-peer:** No fixed server/client roles - any peer can listen, connect,
   send, and receive
 - **Easily extensible:** Add custom transports beyond TCP/TLS, such as QUIC
@@ -31,21 +30,9 @@ Built on Transport - automatic framing and type-safe message dispatch.
 - Bring your own serialization (bincode, serde, hand-written, etc.) - includes
   optional bincode helpers
 
-### 3. RPC Layer (Async Request-Response)
-⚠️ **WORK IN PROGRESS - DO NOT USE** ⚠️
-
-Built on Messenger - async request-response pattern for RPC-style communication.
-- Async/await API with `send_request()` that returns typed responses
-- Works with tokio, async-std, smol, or even no runtime at all with `futures::executor`
-- Automatic request/response matching by ID
-- Optional feature: enable with `rpc` (enabled by default)
-
-**This API is unstable and will change.** Do not use this yet until it is finished.
-
 **Choose your layer:**
 - Need raw bytes? Use **Transport**
 - Need typed messages? Use **Messenger**  
-- Need async RPC? Use **RpcMessenger**
 
 ## Documentation
 
@@ -67,9 +54,6 @@ The repository includes several examples demonstrating each layer:
 - **thread_pool** - Multi-threaded message processing with worker pool
 - **custom_serialization** - Using custom serialization instead of bincode
 - **chat** - Full-featured chat application with multiple server variants
-
-**RpcMessenger Layer:**
-- **async** - Request-response pattern with runtime-agnostic async
 
 Run an example:
 

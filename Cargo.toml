@@ -23,9 +23,8 @@ webpki-roots = { version = "0.26", optional = true }
 futures = { version = "0.3", optional = true }
 
 [features]
-default = ["bincode", "tls", "rpc"]
+default = ["bincode", "tls"]
 tls = ["rustls", "rustls-pemfile", "webpki-roots"]
-rpc = ["futures"]
 
 [dev-dependencies]
 rand = "0.9.2"

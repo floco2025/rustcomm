@@ -123,10 +123,11 @@ impl Messenger {
 // ============================================================================
 
 impl<C: Context> Messenger<C> {
-    /// Creates a new Messenger instance with a custom context type and transport.
+    /// Creates a new Messenger instance with a custom context type and
+    /// transport.
     ///
-    /// This allows creating a Messenger with a specific context type (e.g., RpcContext)
-    /// rather than the default EmptyContext.
+    /// This allows creating a Messenger with a specific context type (e.g.,
+    /// RpcContext) rather than the default EmptyContext.
     pub fn new_named_with_context(
         transport: Transport,
         _config: &Config,
