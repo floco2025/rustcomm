@@ -91,6 +91,8 @@ fn build_config(transport_type: &str) -> config::Config {
     config::Config::builder()
         .set_default("transport_type", transport_type)
         .unwrap()
+        .set_default("max_read_size", "10000") // Small buffer for testing
+        .unwrap()
         .set_default("tls_server_cert", "tests/cert.pem")
         .unwrap()
         .set_default("tls_server_key", "tests/key.pem")

@@ -644,6 +644,7 @@ impl TcpTransport {
                     break;
                 }
                 Ok(sz) => {
+                    // We have new data, so we continue our loop
                     trace!(len = sz, %local_addr, %peer_addr, "Read data from socket");
                     recv_pos += sz;
                 }

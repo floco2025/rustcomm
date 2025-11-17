@@ -760,13 +760,13 @@ impl TlsTransport {
 
         let local_addr = conn.local_addr;
         let peer_addr = conn.peer_addr;
-        let mut recv_buf = Vec::new();
+        let mut recv_buf = Vec::<u8>::new();
         let mut recv_pos: usize = 0;
         let mut disconnect = false;
         let old_interest = conn.interest;
         let mut spurious = true;
 
-        while !disconnect {
+        loop {
             // Read TLS data from socket
             match conn.read_tls() {
                 Ok(0) => {
@@ -775,12 +775,15 @@ impl TlsTransport {
                     break;
                 }
                 Ok(sz) => {
+                    // We received data, so proceed with packet processing
                     trace!(len = sz, %local_addr, %peer_addr, "Read encrypted data from socket");
                     spurious = false;
                 }
+                Err(err) if err.kind() == ErrorKind::Other => {
+                    // Backpressure, so procceed with packet processing
+                }
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    // Further reading would block, so we are done
-                    break;
+                    // Further reading would block, so procceed with packet processing
                 }
                 Err(err) => {
                     if err.kind() == ErrorKind::BrokenPipe {
@@ -805,18 +808,22 @@ impl TlsTransport {
             // Read available decrypted application data
             recv_buf.resize(recv_pos + self.max_read_size, 0);
             let recv_buf_slice = &mut recv_buf[recv_pos..];
-
             match conn.reader().read(recv_buf_slice) {
                 Ok(0) => {
-                    // No plaintext data available
+                    // No plaintext data available, so we didn't make any
+                    // progress and exit the loop
+                    break;
                 }
                 Ok(sz) => {
+                    // We have new plaintext data, so we continue our loop
                     trace!(len = sz, %local_addr, %peer_addr, "Read plaintext from TLS");
                     recv_pos += sz;
                     spurious = false;
                 }
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    // No plaintext data available
+                    // No plaintext data available, so we didn't make any
+                    // progress and exit the loop
+                    break;
                 }
                 Err(err) => {
                     error!(%local_addr, %peer_addr, ?err, "Error reading plaintext from TLS");
