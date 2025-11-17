@@ -19,7 +19,7 @@ use quinn_proto::{
     EndpointConfig, Event, Incoming, ServerConfig, StreamEvent, TransportConfig, VarInt,
     WriteError,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{hash_map::Entry, HashMap, VecDeque};
 use std::io::ErrorKind;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -55,6 +55,25 @@ impl StreamHalfShutdown {
     }
 }
 
+#[derive(Debug)]
+struct QuicStream {
+    quic_id: Option<quinn_proto::StreamId>,
+    send_buf: VecDeque<u8>,
+    read_shutdown: StreamHalfShutdown,
+    write_shutdown: StreamHalfShutdown,
+}
+
+impl QuicStream {
+    fn new(quic_id: Option<quinn_proto::StreamId>) -> Self {
+        Self {
+            quic_id,
+            send_buf: VecDeque::new(),
+            read_shutdown: StreamHalfShutdown::default(),
+            write_shutdown: StreamHalfShutdown::default(),
+        }
+    }
+}
+
 /// Internal state associated with an active QUIC connection
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum EndpointRef {
@@ -74,6 +93,8 @@ struct QuicConnection {
     read_shutdown: StreamHalfShutdown,
     write_shutdown: StreamHalfShutdown,
     endpoint: EndpointRef,
+    streams: HashMap<usize, QuicStream>,
+    quic_to_virtual: HashMap<quinn_proto::StreamId, usize>,
 }
 
 impl QuicConnection {
@@ -88,6 +109,8 @@ impl QuicConnection {
             read_shutdown: StreamHalfShutdown::default(),
             write_shutdown: StreamHalfShutdown::default(),
             endpoint,
+            streams: HashMap::new(),
+            quic_to_virtual: HashMap::new(),
         }
     }
 }
@@ -111,6 +134,7 @@ struct ListenerState {
 pub(super) struct QuicTransport {
     connections: HashMap<usize, QuicConnection>,
     handle_map: HashMap<(EndpointRef, ConnectionHandle), usize>,
+    stream_owners: HashMap<usize, usize>,
     listeners: HashMap<usize, ListenerState>,
     next_id: usize,
     poll: Poll,
@@ -122,6 +146,7 @@ pub(super) struct QuicTransport {
     client_endpoint: Option<Endpoint>,
     client_recv_buffer: Vec<u8>,
     send_buffer: Vec<u8>,
+    pending_events: Vec<TransportEvent>,
     tls_client_config: Option<ClientConfig>,
     tls_server_config: Option<Arc<ServerConfig>>,
     tls_server_name: Option<String>,
@@ -169,6 +194,7 @@ impl QuicTransport {
         Ok(Self {
             connections: HashMap::new(),
             handle_map: HashMap::new(),
+            stream_owners: HashMap::new(),
             listeners: HashMap::new(),
             next_id: CONNECTION_ID_RANGE_START,
             poll,
@@ -180,6 +206,7 @@ impl QuicTransport {
             client_endpoint: None,
             client_recv_buffer: vec![0u8; MAX_UDP_PAYLOAD],
             send_buffer: Vec::with_capacity(MAX_UDP_PAYLOAD),
+            pending_events: Vec::new(),
             tls_client_config: client_config,
             tls_server_config: server_config,
             tls_server_name,
@@ -294,6 +321,9 @@ impl QuicTransport {
             let peer_addr = conn.connection.remote_address();
             info!(id, local_ip = ?local_ip, %peer_addr, "Closed QUIC connection");
             self.handle_map.remove(&(conn.endpoint, conn.handle));
+            self.stream_owners.retain(|_, parent| *parent != id);
+            conn.streams.clear();
+            conn.quic_to_virtual.clear();
         }
     }
 
@@ -320,9 +350,15 @@ impl QuicTransport {
 
             if read {
                 conn.read_shutdown.request();
+                for stream in conn.streams.values_mut() {
+                    stream.read_shutdown.request();
+                }
             }
             if write {
                 conn.write_shutdown.request();
+                for stream in conn.streams.values_mut() {
+                    stream.write_shutdown.request();
+                }
             }
 
             if how == Shutdown::Both {
@@ -333,6 +369,10 @@ impl QuicTransport {
             } else {
                 trace!(id, read, write, "Requesting QUIC half-shutdown");
                 Self::apply_stream_shutdowns(id, conn);
+                let secondary_ids: Vec<usize> = conn.streams.keys().copied().collect();
+                for stream_id in secondary_ids {
+                    Self::apply_secondary_shutdowns(id, stream_id, conn);
+                }
             }
         } else {
             warn!(id, "QUIC connection not found for shutdown");
@@ -390,9 +430,33 @@ impl QuicTransport {
             if conn.connected {
                 Self::ensure_stream_open(id, conn);
             }
-        } else {
-            warn!(id, "QUIC connection not found for send");
+            return;
         }
+
+        if let Some(&conn_id) = self.stream_owners.get(&id) {
+            if let Some(conn) = self.connections.get_mut(&conn_id) {
+                debug!(
+                    conn_id,
+                    stream_id = id,
+                    len = data.len(),
+                    "Sending QUIC stream data"
+                );
+                Self::queue_secondary_send(conn_id, id, conn, data);
+                if conn.connected {
+                    Self::apply_secondary_shutdowns(conn_id, id, conn);
+                }
+            } else {
+                warn!(
+                    stream_id = id,
+                    parent = conn_id,
+                    "Missing parent connection for stream send"
+                );
+                self.stream_owners.remove(&id);
+            }
+            return;
+        }
+
+        warn!(id, "QUIC connection or stream not found for send");
     }
 
     /// Sends data to multiple QUIC connections.
@@ -444,16 +508,112 @@ impl QuicTransport {
 }
 
 // ============================================================================
+// Multi-stream Operations
+// ============================================================================
+
+impl QuicTransport {
+    /// QUIC natively supports arbitrarily many bidirectional streams.
+    pub fn supports_multi_stream(&self) -> bool {
+        true
+    }
+
+    /// Opens an additional bidirectional stream on an established connection.
+    pub fn open_stream(&mut self, connection_id: usize) -> Result<usize, Error> {
+        let quic_stream = {
+            let conn = self
+                .connections
+                .get_mut(&connection_id)
+                .ok_or(Error::ConnectionNotFound { id: connection_id })?;
+
+            if !conn.connected {
+                return Err(Error::ConnectionNotReady { id: connection_id });
+            }
+
+            conn.connection.streams().open(Dir::Bi).ok_or_else(|| {
+                Error::Io(std::io::Error::new(
+                    ErrorKind::Other,
+                    "Unable to allocate additional QUIC stream",
+                ))
+            })?
+        };
+
+        let stream_id = self.next_id;
+        self.advance_connection_id();
+
+        if let Some(conn) = self.connections.get_mut(&connection_id) {
+            match conn.streams.entry(stream_id) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().quic_id = Some(quic_stream);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(QuicStream::new(Some(quic_stream)));
+                }
+            }
+            conn.quic_to_virtual.insert(quic_stream, stream_id);
+            Self::flush_secondary_stream(connection_id, stream_id, conn);
+        }
+        self.stream_owners.insert(stream_id, connection_id);
+
+        // Surface a Connected event for the newly created logical stream so the
+        // consumer can begin using it like any other connection ID.
+        self.pending_events
+            .push(TransportEvent::Connected { id: stream_id });
+
+        Ok(stream_id)
+    }
+
+    /// Closes a previously opened logical stream.
+    pub fn close_stream(&mut self, stream_id: usize) {
+        if self.connections.contains_key(&stream_id) {
+            warn!(stream_id, "close_stream called with primary connection id");
+            return;
+        }
+
+        let Some(conn_id) = self.stream_owners.remove(&stream_id) else {
+            warn!(stream_id, "Unknown QUIC stream for close_stream");
+            return;
+        };
+
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            if let Some(stream) = conn.streams.remove(&stream_id) {
+                if let Some(quic_id) = stream.quic_id {
+                    conn.quic_to_virtual.remove(&quic_id);
+                    let err_code = VarInt::from_u32(0);
+                    if let Err(err) = conn.connection.recv_stream(quic_id).stop(err_code) {
+                        warn!(stream_id, ?err, "Failed to stop QUIC recv stream");
+                    }
+                    if let Err(err) = conn.connection.send_stream(quic_id).finish() {
+                        warn!(stream_id, ?err, "Failed to finish QUIC send stream");
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Event Operations
 // ============================================================================
 
 impl QuicTransport {
     /// Drives the QUIC transport loop until events are available and returns them.
     pub fn fetch_events(&mut self) -> Result<Vec<TransportEvent>, Error> {
+        if !self.pending_events.is_empty() {
+            let mut pending = Vec::new();
+            pending.append(&mut self.pending_events);
+            return Ok(pending);
+        }
+
         let mut dispatch_events = Vec::new();
 
         loop {
             self.process_interface_requests();
+
+            if !self.pending_events.is_empty() {
+                let mut pending = Vec::new();
+                pending.append(&mut self.pending_events);
+                return Ok(pending);
+            }
 
             if self.connections.is_empty() && self.listeners.is_empty() {
                 dispatch_events.push(TransportEvent::Inactive);
@@ -543,6 +703,17 @@ impl QuicTransport {
                 SendRequest::BroadcastExceptMany { data, except_ids } => {
                     self.broadcast_except_many(data, &except_ids)
                 }
+                SendRequest::SupportsMultiStream { response } => {
+                    let _ = response.send(self.supports_multi_stream());
+                }
+                SendRequest::OpenStream {
+                    connection_id,
+                    response,
+                } => {
+                    let result = self.open_stream(connection_id);
+                    let _ = response.send(result);
+                }
+                SendRequest::CloseStream { stream_id } => self.close_stream(stream_id),
             }
         }
     }
@@ -764,7 +935,7 @@ impl QuicTransport {
 
             let mut alive = true;
 
-            while let Some(event) = conn.connection.poll() {
+                while let Some(event) = conn.connection.poll() {
                 match event {
                     Event::Connected => {
                         if !conn.connected {
@@ -784,6 +955,11 @@ impl QuicTransport {
                         info!(id, local_ip = ?local_ip, %peer_addr, ?reason, "QUIC connection lost");
                         if conn.connected {
                             dispatch.push(TransportEvent::Disconnected { id });
+                            let extra_ids: Vec<usize> = conn.streams.keys().copied().collect();
+                            for stream_id in extra_ids {
+                                dispatch.push(TransportEvent::Disconnected { id: stream_id });
+                                self.stream_owners.remove(&stream_id);
+                            }
                         } else {
                             dispatch.push(TransportEvent::ConnectionFailed { id });
                         }
@@ -791,12 +967,14 @@ impl QuicTransport {
                     }
                     Event::Stream(stream_event) => {
                         trace!(id, ?stream_event, "QUIC stream event");
-                        Self::handle_stream_event(id, &mut conn, stream_event, dispatch);
+                        self.handle_stream_event(id, &mut conn, stream_event, dispatch);
                     }
                     Event::DatagramReceived => {}
                     _ => {}
                 }
             }
+
+            self.poll_all_secondary_streams(id, &mut conn, dispatch);
 
             if !alive {
                 continue;
@@ -842,43 +1020,53 @@ impl QuicTransport {
 impl QuicTransport {
     /// Handles `quinn-proto` stream events and converts them into transport actions.
     fn handle_stream_event(
-        id: usize,
+        &mut self,
+        conn_id: usize,
         conn: &mut QuicConnection,
         stream_event: StreamEvent,
         dispatch: &mut Vec<TransportEvent>,
     ) {
         match stream_event {
             StreamEvent::Opened { dir } => {
-                if let Some(accepted) = conn.connection.streams().accept(dir) {
-                    trace!(id, ?dir, stream_id = ?accepted, "QUIC accepted incoming stream");
-                    if dir == Dir::Bi {
-                        if conn.stream_id.is_none() {
-                            conn.stream_id = Some(accepted);
-                            Self::ensure_stream_open(id, conn);
+                if dir == Dir::Bi {
+                    while let Some(stream) = conn.connection.streams().accept(dir) {
+                        trace!(conn_id, ?dir, stream_id = ?stream, "QUIC accepted incoming stream");
+                        let virtual_id =
+                            self.ensure_virtual_stream(conn_id, conn, stream, dispatch);
+                        if virtual_id == conn_id {
+                            Self::ensure_stream_open(conn_id, conn);
+                        } else {
+                            self.drain_secondary_stream(
+                                conn_id, virtual_id, conn, stream, dispatch,
+                            );
                         }
-                        Self::drain_recv_stream(id, conn, accepted, dispatch);
                     }
                 }
             }
             StreamEvent::Readable { id: stream_id } => {
-                if conn.stream_id.is_none() {
-                    conn.stream_id = Some(stream_id);
-                    Self::apply_stream_shutdowns(id, conn);
+                if conn.stream_id == Some(stream_id) {
+                    Self::drain_recv_stream(conn_id, conn, stream_id, dispatch);
+                } else {
+                    let virtual_id =
+                        self.ensure_virtual_stream(conn_id, conn, stream_id, dispatch);
+                    self.drain_secondary_stream(conn_id, virtual_id, conn, stream_id, dispatch);
                 }
-                Self::drain_recv_stream(id, conn, stream_id, dispatch);
             }
             StreamEvent::Writable { id: stream_id } => {
-                if conn.stream_id.is_none() {
-                    conn.stream_id = Some(stream_id);
-                    Self::apply_stream_shutdowns(id, conn);
+                if conn.stream_id == Some(stream_id) {
+                    Self::flush_send_buffer(conn_id, conn);
+                } else {
+                    let virtual_id =
+                        self.ensure_virtual_stream(conn_id, conn, stream_id, dispatch);
+                    Self::flush_secondary_stream(conn_id, virtual_id, conn);
+                    Self::apply_secondary_shutdowns(conn_id, virtual_id, conn);
                 }
-                Self::flush_send_buffer(id, conn);
             }
-            StreamEvent::Finished { .. } => {
-                dispatch.push(TransportEvent::Disconnected { id });
+            StreamEvent::Finished { id: stream_id } => {
+                self.handle_stream_finished(conn_id, conn, stream_id, dispatch);
             }
-            StreamEvent::Stopped { .. } => {
-                dispatch.push(TransportEvent::Disconnected { id });
+            StreamEvent::Stopped { id: stream_id, .. } => {
+                self.handle_stream_finished(conn_id, conn, stream_id, dispatch);
             }
             StreamEvent::Available { .. } => {}
         }
@@ -971,6 +1159,74 @@ impl QuicTransport {
         }
     }
 
+    /// Reads bytes for a secondary logical stream and emits a Data event.
+    fn drain_secondary_stream(
+        &mut self,
+        conn_id: usize,
+        virtual_id: usize,
+        conn: &mut QuicConnection,
+        stream_id: quinn_proto::StreamId,
+        dispatch: &mut Vec<TransportEvent>,
+    ) {
+        if let Some(stream) = conn.streams.get(&virtual_id) {
+            if stream.read_shutdown.requested {
+                trace!(
+                    conn_id,
+                    stream_id = virtual_id,
+                    "Dropping data after read shutdown request"
+                );
+                return;
+            }
+        }
+
+        let mut buf = Vec::new();
+        match conn.connection.recv_stream(stream_id).read(false) {
+            Ok(mut chunks) => {
+                while let Ok(Some(chunk)) = chunks.next(usize::MAX) {
+                    buf.extend_from_slice(&chunk.bytes);
+                }
+                let _ = chunks.finalize();
+                if !buf.is_empty() {
+                    debug!(
+                        conn_id,
+                        stream_id = virtual_id,
+                        bytes = buf.len(),
+                        "QUIC stream received data"
+                    );
+                    dispatch.push(TransportEvent::Data {
+                        id: virtual_id,
+                        data: buf,
+                    });
+                }
+            }
+            Err(err) => {
+                error!(
+                    conn_id,
+                    stream_id = virtual_id,
+                    ?err,
+                    "Error reading QUIC secondary stream"
+                );
+            }
+        }
+    }
+
+    fn poll_all_secondary_streams(
+        &mut self,
+        conn_id: usize,
+        conn: &mut QuicConnection,
+        dispatch: &mut Vec<TransportEvent>,
+    ) {
+        let stream_keys: Vec<(usize, quinn_proto::StreamId)> = conn
+            .streams
+            .iter()
+            .filter_map(|(&virtual_id, stream)| stream.quic_id.map(|id| (virtual_id, id)))
+            .collect();
+
+        for (virtual_id, stream_id) in stream_keys {
+            self.drain_secondary_stream(conn_id, virtual_id, conn, stream_id, dispatch);
+        }
+    }
+
     /// Writes buffered application data into the QUIC send stream.
     fn flush_send_buffer(id: usize, conn: &mut QuicConnection) {
         let Some(stream_id) = conn.stream_id else {
@@ -1005,6 +1261,200 @@ impl QuicTransport {
                     break;
                 }
             }
+        }
+    }
+
+    /// Writes buffered bytes for a secondary stream.
+    fn flush_secondary_stream(conn_id: usize, virtual_id: usize, conn: &mut QuicConnection) {
+        let Some(mut stream) = conn.streams.remove(&virtual_id) else {
+            return;
+        };
+        let Some(quic_stream_id) = stream.quic_id else {
+            conn.streams.insert(virtual_id, stream);
+            return;
+        };
+
+        while !stream.send_buf.is_empty() {
+            let buf = stream.send_buf.make_contiguous();
+            if buf.is_empty() {
+                break;
+            }
+            match conn.connection.send_stream(quic_stream_id).write(buf) {
+                Ok(0) => break,
+                Ok(written) => {
+                    stream.send_buf.drain(..written);
+                    trace!(
+                        conn_id,
+                        stream_id = virtual_id,
+                        written,
+                        "QUIC stream wrote bytes"
+                    );
+                }
+                Err(WriteError::Blocked) => {
+                    break;
+                }
+                Err(err) => {
+                    error!(
+                        conn_id,
+                        stream_id = virtual_id,
+                        ?err,
+                        "Error writing QUIC stream"
+                    );
+                    break;
+                }
+            }
+        }
+
+        conn.streams.insert(virtual_id, stream);
+    }
+
+    fn queue_secondary_send(
+        conn_id: usize,
+        virtual_id: usize,
+        conn: &mut QuicConnection,
+        data: Vec<u8>,
+    ) {
+        let stream = conn
+            .streams
+            .entry(virtual_id)
+            .or_insert_with(|| QuicStream::new(None));
+        if stream.write_shutdown.requested {
+            warn!(
+                conn_id,
+                stream_id = virtual_id,
+                "Ignoring send after QUIC stream write shutdown"
+            );
+            return;
+        }
+        stream.send_buf.extend(data);
+        if stream.quic_id.is_some() {
+            Self::flush_secondary_stream(conn_id, virtual_id, conn);
+        }
+    }
+
+    fn apply_secondary_shutdowns(conn_id: usize, stream_id: usize, conn: &mut QuicConnection) {
+        let write_pending = conn
+            .streams
+            .get(&stream_id)
+            .map(|stream| stream.write_shutdown.pending())
+            .unwrap_or(false);
+        let read_pending = conn
+            .streams
+            .get(&stream_id)
+            .map(|stream| stream.read_shutdown.pending())
+            .unwrap_or(false);
+
+        if write_pending {
+            Self::finish_secondary_stream(conn_id, stream_id, conn);
+        }
+        if read_pending {
+            Self::stop_secondary_stream(conn_id, stream_id, conn);
+        }
+    }
+
+    fn finish_secondary_stream(conn_id: usize, stream_id: usize, conn: &mut QuicConnection) {
+        let Some(quic_stream_id) = conn
+            .streams
+            .get(&stream_id)
+            .and_then(|stream| stream.quic_id)
+        else {
+            return;
+        };
+
+        Self::flush_secondary_stream(conn_id, stream_id, conn);
+
+        match conn.connection.send_stream(quic_stream_id).finish() {
+            Ok(()) => {
+                if let Some(stream) = conn.streams.get_mut(&stream_id) {
+                    stream.write_shutdown.mark_applied();
+                }
+                trace!(conn_id, stream_id, "Finished QUIC send stream");
+            }
+            Err(err) => {
+                warn!(
+                    conn_id,
+                    stream_id,
+                    ?err,
+                    "Failed to finish QUIC send stream"
+                );
+            }
+        }
+    }
+
+    fn stop_secondary_stream(conn_id: usize, stream_id: usize, conn: &mut QuicConnection) {
+        let Some(quic_stream_id) = conn
+            .streams
+            .get(&stream_id)
+            .and_then(|stream| stream.quic_id)
+        else {
+            return;
+        };
+        let err_code = VarInt::from_u32(0);
+        match conn.connection.recv_stream(quic_stream_id).stop(err_code) {
+            Ok(()) => {
+                if let Some(stream) = conn.streams.get_mut(&stream_id) {
+                    stream.read_shutdown.mark_applied();
+                }
+                trace!(conn_id, stream_id, "Stopped QUIC recv stream");
+            }
+            Err(err) => {
+                warn!(conn_id, stream_id, ?err, "Failed to stop QUIC recv stream");
+            }
+        }
+    }
+
+    fn ensure_virtual_stream(
+        &mut self,
+        conn_id: usize,
+        conn: &mut QuicConnection,
+        quic_stream_id: quinn_proto::StreamId,
+        dispatch: &mut Vec<TransportEvent>,
+    ) -> usize {
+        if conn.stream_id.is_none() {
+            conn.stream_id = Some(quic_stream_id);
+            return conn_id;
+        }
+
+        if let Some(&virtual_id) = conn.quic_to_virtual.get(&quic_stream_id) {
+            return virtual_id;
+        }
+
+        let stream_id = self.next_id;
+        self.advance_connection_id();
+        match conn.streams.entry(stream_id) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().quic_id = Some(quic_stream_id);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(QuicStream::new(Some(quic_stream_id)));
+            }
+        }
+        conn.quic_to_virtual.insert(quic_stream_id, stream_id);
+        self.stream_owners.insert(stream_id, conn_id);
+        dispatch.push(TransportEvent::Connected { id: stream_id });
+        stream_id
+    }
+
+    fn handle_stream_finished(
+        &mut self,
+        conn_id: usize,
+        conn: &mut QuicConnection,
+        quic_stream_id: quinn_proto::StreamId,
+        dispatch: &mut Vec<TransportEvent>,
+    ) {
+        if conn.stream_id == Some(quic_stream_id) {
+            dispatch.push(TransportEvent::Disconnected { id: conn_id });
+            conn.stream_id = None;
+            conn.send_buf.clear();
+            conn.read_shutdown = StreamHalfShutdown::default();
+            conn.write_shutdown = StreamHalfShutdown::default();
+            return;
+        }
+
+        if let Some(virtual_id) = conn.quic_to_virtual.remove(&quic_stream_id) {
+            self.stream_owners.remove(&virtual_id);
+            conn.streams.remove(&virtual_id);
+            dispatch.push(TransportEvent::Disconnected { id: virtual_id });
         }
     }
 
@@ -1113,6 +1563,7 @@ impl QuicTransport {
                 .unwrap_or(CONNECTION_ID_RANGE_START);
             if !self.connections.contains_key(&self.next_id)
                 && !self.listeners.contains_key(&self.next_id)
+                && !self.stream_owners.contains_key(&self.next_id)
             {
                 break;
             }
@@ -1186,6 +1637,18 @@ impl TransportImpl for QuicTransport {
 
     fn broadcast_except_many(&mut self, buf: Vec<u8>, except_ids: &[usize]) {
         QuicTransport::broadcast_except_many(self, buf, except_ids)
+    }
+
+    fn supports_multi_stream(&self) -> bool {
+        QuicTransport::supports_multi_stream(self)
+    }
+
+    fn open_stream(&mut self, connection_id: usize) -> Result<usize, Error> {
+        QuicTransport::open_stream(self, connection_id)
+    }
+
+    fn close_stream(&mut self, stream_id: usize) {
+        QuicTransport::close_stream(self, stream_id)
     }
 
     fn fetch_events(&mut self) -> Result<Vec<TransportEvent>, Error> {

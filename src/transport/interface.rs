@@ -58,6 +58,18 @@ pub(crate) enum SendRequest {
         data: Vec<u8>,
         except_ids: Vec<usize>,
     },
+
+    // Multi-stream Operations
+    SupportsMultiStream {
+        response: Sender<bool>,
+    },
+    OpenStream {
+        connection_id: usize,
+        response: Sender<Result<usize, Error>>,
+    },
+    CloseStream {
+        stream_id: usize,
+    },
 }
 
 /// Thread-safe interface for sending data through a Transport.
@@ -318,6 +330,47 @@ impl TransportInterface {
     pub fn broadcast_except_many(&self, data: Vec<u8>, except_ids: Vec<usize>) {
         self.sender
             .send(SendRequest::BroadcastExceptMany { data, except_ids })
+            .expect("Failed to send request to event loop");
+        self.waker.wake().expect("Failed to wake event loop");
+    }
+
+    // ============================================================================
+    // Multi-stream Operations
+    // ============================================================================
+
+    /// Returns whether the underlying transport supports multiple streams per
+    /// connection (e.g., QUIC bidirectional streams).
+    pub fn supports_multi_stream(&self) -> bool {
+        let (tx, rx) = channel();
+        self.sender
+            .send(SendRequest::SupportsMultiStream { response: tx })
+            .expect("Failed to send request to event loop");
+        self.waker.wake().expect("Failed to wake event loop");
+        rx.recv()
+            .expect("Failed to receive response from event loop")
+    }
+
+    /// Opens an additional logical stream on the specified connection.
+    ///
+    /// Returns a new virtual connection ID that can be used with the standard
+    /// send/broadcast APIs.
+    pub fn open_stream(&self, connection_id: usize) -> Result<usize, Error> {
+        let (tx, rx) = channel();
+        self.sender
+            .send(SendRequest::OpenStream {
+                connection_id,
+                response: tx,
+            })
+            .expect("Failed to send request to event loop");
+        self.waker.wake().expect("Failed to wake event loop");
+        rx.recv()
+            .expect("Failed to receive response from event loop")
+    }
+
+    /// Closes a previously opened logical stream.
+    pub fn close_stream(&self, stream_id: usize) {
+        self.sender
+            .send(SendRequest::CloseStream { stream_id })
             .expect("Failed to send request to event loop");
         self.waker.wake().expect("Failed to wake event loop");
     }

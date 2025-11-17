@@ -126,7 +126,7 @@
 //! | `poll_capacity` | Event polling capacity for mio (default: 256) |
 //!
 //! ### TCP Configuration
-//! 
+//!
 //! **Optional:**
 //!
 //! | Key | Description |
@@ -134,11 +134,11 @@
 //! | `max_read_size` | Maximum bytes per socket read call |
 //!
 //! ### TLS Configuration
-//! 
+//!
 //! **Required:**
-//! 
+//!
 //! See the "TLS / QUIC Security Configuration" section below
-//! 
+//!
 //! **Optional:**
 //!
 //! | Key | Description |

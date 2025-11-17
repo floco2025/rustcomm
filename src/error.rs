@@ -26,11 +26,25 @@ pub enum Error {
         id: usize,
     },
 
+    /// Attempted to operate on a connection that is not fully established yet.
+    #[error("Connection {id} not ready for this operation")]
+    ConnectionNotReady {
+        /// The connection ID that has not completed its handshake.
+        id: usize,
+    },
+
     /// Attempted to operate on a listener ID that doesn't exist.
     #[error("Listener {id} not found")]
     ListenerNotFound {
         /// The listener ID that was not found.
         id: usize,
+    },
+
+    /// Requested a transport capability that the current backend does not support.
+    #[error("{feature} is not supported by this transport")]
+    UnsupportedFeature {
+        /// Name of the missing capability (e.g., "multi_stream").
+        feature: &'static str,
     },
 
     // ============================================================================

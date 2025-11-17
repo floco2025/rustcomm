@@ -77,6 +77,22 @@ trait TransportImpl: Send {
     // ============================================================================
 
     fn get_transport_interface(&self) -> TransportInterface;
+
+    // ============================================================================
+    // Multi-stream Operations
+    // ============================================================================
+
+    fn supports_multi_stream(&self) -> bool {
+        false
+    }
+
+    fn open_stream(&mut self, _connection_id: usize) -> Result<usize, Error> {
+        Err(Error::UnsupportedFeature {
+            feature: "multi_stream",
+        })
+    }
+
+    fn close_stream(&mut self, _stream_id: usize) {}
 }
 
 /// Dynamic transport that wraps TCP, TLS, or QUIC transports based on configuration.
@@ -416,5 +432,38 @@ impl Transport {
     /// Gets a thread-safe interface for sending data from other threads.
     pub fn get_transport_interface(&self) -> TransportInterface {
         self.inner.get_transport_interface()
+    }
+
+    // ============================================================================
+    // Multi-stream Operations
+    // ============================================================================
+
+    /// Returns whether the underlying transport can open multiple logical streams
+    /// (e.g., QUIC bidirectional streams) on a single connection.
+    pub fn supports_multi_stream(&self) -> bool {
+        self.inner.supports_multi_stream()
+    }
+
+    /// Opens an additional bidirectional stream on the specified connection.
+    ///
+    /// Returns a virtual connection ID representing the new stream. Use this ID
+    /// with [`Self::send_to`] and other data APIs just like a normal connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::UnsupportedFeature`] if the transport backend does not
+    /// support multi-stream, or [`Error::ConnectionNotFound`] if the base
+    /// connection ID is invalid.
+    pub fn open_stream(&mut self, connection_id: usize) -> Result<usize, Error> {
+        self.inner.open_stream(connection_id)
+    }
+
+    /// Gracefully closes the specified logical stream.
+    ///
+    /// Closing a stream does **not** emit a [`TransportEvent::Disconnected`]
+    /// event, mirroring the behavior of [`Self::close_connection`]. Remote peers
+    /// will observe the shutdown through normal QUIC signaling.
+    pub fn close_stream(&mut self, stream_id: usize) {
+        self.inner.close_stream(stream_id)
     }
 }

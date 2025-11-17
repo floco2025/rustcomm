@@ -527,6 +527,17 @@ impl TcpTransport {
                 SendRequest::BroadcastExceptMany { data, except_ids } => {
                     self.broadcast_except_many(data, &except_ids)
                 }
+                SendRequest::SupportsMultiStream { response } => {
+                    let _ = response.send(self.supports_multi_stream());
+                }
+                SendRequest::OpenStream {
+                    connection_id,
+                    response,
+                } => {
+                    let result = self.open_stream(connection_id);
+                    let _ = response.send(result);
+                }
+                SendRequest::CloseStream { stream_id } => self.close_stream(stream_id),
             }
         }
     }
