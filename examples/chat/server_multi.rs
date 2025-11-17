@@ -69,7 +69,7 @@ struct Args {
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    // Initialize tracing for messaging crate
+    // Initialize tracing
     init_tracing(args.verbose);
 
     // Create config - load from file if specified, otherwise use defaults
