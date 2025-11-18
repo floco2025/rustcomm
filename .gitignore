@@ -4,12 +4,14 @@ bacon.toml
 .DS_Store
 Cargo.lock
 
-# TLS certificates and private keys (never commit these!)
+# Ignore all TLS certificates and private keys
 *.pem
 *.key
 *.crt
 *.csr
 
-# Exception: Sample certificates for development/testing only
-!examples/chat/*.pem
-!tests/*.pem
+# Allow only these specific certificates for development and testing
+!examples/chat/cert.pem
+!examples/chat/key.pem
+!tests/cert.pem
+!tests/key.pem
